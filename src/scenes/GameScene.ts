@@ -134,6 +134,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private scheduleWaves(): void {
+    if (__DEV_HOOK__) {
+      const w = window as unknown as { __SW_CALLS__?: number };
+      w.__SW_CALLS__ = (w.__SW_CALLS__ || 0) + 1;
+    }
     this.pending = [];
     for (const g of TEST_WAVES) {
       let t = g.atMs;
@@ -283,6 +287,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private checkOutcome(): void {
+    if (__DEV_HOOK__) {
+      const w = window as unknown as { __CO_CALLS__?: number };
+      w.__CO_CALLS__ = (w.__CO_CALLS__ || 0) + 1;
+    }
     if (this.run.phase === 'won' || this.run.phase === 'lost') return;
 
     if (this.run.hp <= 0) {
@@ -317,11 +325,24 @@ export class GameScene extends Phaser.Scene {
   }
 
   private finish(outcome: 'won' | 'lost'): void {
+    if (__DEV_HOOK__) {
+      const w = window as unknown as { __FIN_CALLS__?: number };
+      w.__FIN_CALLS__ = (w.__FIN_CALLS__ || 0) + 1;
+    }
     if (!this.hudReady) return;
     if (this.run.phase !== 'won' && this.run.phase !== 'lost') return;
     // 終局：立即停止輸入與物理，避免結算後仍移動/加分
     this.input2?.clearAll();
     this.player.setVelocity(0, 0);
+    // 剩餘敵人：結算後只銷毀，不再增加逃脫數（逃脫僅在收尾期限由 checkOutcome 計入）
+    for (const obj of [...this.enemies.getChildren()]) {
+      const e = obj as EnemySprite;
+      if (!e.active) continue;
+      e.settled = true;
+      e.destroy();
+    }
+    // 玩家彈群組（B 階段尚無敵方彈，敵方彈清空不適用）
+    this.bullets.clear(true, true);
     this.physics.world.pause();
     const hpBonus = outcome === 'won' ? this.run.hp * BALANCE.score.hpBonusPerLife : 0;
     this.scene.get('Hud').events.emit('finished', {

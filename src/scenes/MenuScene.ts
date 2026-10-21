@@ -13,11 +13,11 @@ export class MenuScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     // B 階段測試版標示：避免與正式三段關卡文案混淆
-    this.add.text(width / 2, height * 0.32, 'B 階段測試版｜18 秒｜目前僅菌團怪', {
+    this.add.text(width / 2, height * 0.32, 'C 階段｜180 秒｜四種敵人', {
       fontFamily: '"Noto Sans TC", sans-serif', fontSize: '26px', color: '#e76f51',
     }).setOrigin(0.5);
 
-    this.add.text(width / 2, height * 0.39, '正式版為 3 分鐘、三類危害', {
+    this.add.text(width / 2, height * 0.39, '黃麴毒素・二氧化硫超標・沙門氏菌・金黃色葡萄球菌', {
       fontFamily: '"Noto Sans TC", sans-serif', fontSize: '20px', color: '#5a8aa8',
     }).setOrigin(0.5);
 
@@ -36,11 +36,11 @@ export class MenuScene extends Phaser.Scene {
 
     // 依輸入能力顯示：觸控尚未實作，明確標示
     const touch = typeof window !== 'undefined' && 'ontouchstart' in window;
-    this.add.text(width / 2, height * 0.78, '目前請使用鍵盤遊玩（觸控控制尚未實作）', {
-      fontFamily: '"Noto Sans TC", sans-serif', fontSize: '22px', color: touch ? '#e76f51' : '#7c9cb3',
+    this.add.text(width / 2, height * 0.78, touch ? '手機請橫向遊玩：左側移動、右側按住射擊' : '鍵盤：WASD／方向鍵移動　Space／J 射擊', {
+      fontFamily: '"Noto Sans TC", sans-serif', fontSize: '22px', color: '#5a8aa8',
     }).setOrigin(0.5);
 
-    this.add.text(width / 2, height * 0.90, 'WASD／方向鍵移動　Space／J 射擊　Esc／P 暫停', {
+    this.add.text(width / 2, height * 0.90, 'Esc／P 暫停　·　點右上角可暫停', {
       fontFamily: '"Noto Sans TC", sans-serif', fontSize: '18px', color: '#7c9cb3',
     }).setOrigin(0.5);
   }

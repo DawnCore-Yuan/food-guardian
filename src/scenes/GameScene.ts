@@ -25,6 +25,8 @@ export class GameScene extends Phaser.Scene {
   private enemyBullets!: Phaser.Physics.Arcade.Group;
   private warnQuota = new WarnQuota();
   private warnIcons = new Map<Phaser.GameObjects.Image, EnemySprite>();
+  /** 敵人名稱牌（深藍膠囊＋白字＋下指三角），資料取自 HAZARD_KINDS */
+  private nameTags = new Map<EnemySprite, Phaser.GameObjects.Container>();
   private warnIconOf = new Map<EnemySprite, Phaser.GameObjects.Image>();
   private reducedMotion = false;
   private effects = new Set<Phaser.GameObjects.Image>();
@@ -39,11 +41,6 @@ export class GameScene extends Phaser.Scene {
   private cooldownMs = 0;
   private invulnMs = 0;
   private hudReady = false;
-  private hudText!: Phaser.GameObjects.Text;
-  private hudHeartsEmpty!: Phaser.GameObjects.Text;
-  private hudScore!: Phaser.GameObjects.Text;
-  private hudPlate!: Phaser.GameObjects.Graphics;
-  private progress!: Phaser.GameObjects.Rectangle;
   private level!: LevelConfig;
 
   constructor() { super('Game'); }
@@ -103,40 +100,18 @@ export class GameScene extends Phaser.Scene {
 
     this.add.graphics().fillStyle(0xffffff, 0.001); // reserve
 
-    // 左上血量／分數（批次 7）：3 倍尺寸、深藍半透明圓角底板、白字深藍描邊。
-    // 底板先建、文字後建，確保同一 depth 下文字在上。
-    // 注意：subText 用來放置「分數」，橫向空間不足時會換到第二行（不動字級）。
-    this.hudPlate = this.add.graphics().setDepth(10).setName('hud-plate');
-    // 愛心：實心 ♥ 必須是字型「填色」，❌ 不能走描邊 → 因此實心與空心分成兩個 Text：
-    //   heartsOn  = 實心 ♥，純 #FF0000 填色、無描邊
-    //   heartsOff = 空心 ♡，淺灰白填色 + 深藍細描邊
-    // 另外 ♥/♡ 屬裝飾符號，若交給 CJK 字型會被畫成字形內建樣式（♥ 變白心），故用系統 sans-serif。
-    this.hudText = this.add.text(0, 0, '', {
-      fontFamily: 'system-ui, "Segoe UI Symbol", sans-serif',
-      fontSize: '48px',
-      color: '#FF0000',
-    }).setDepth(10).setOrigin(0, 0.5).setName('hud-hearts');
-    this.hudHeartsEmpty = this.add.text(0, 0, '', {
-      fontFamily: 'system-ui, "Segoe UI Symbol", sans-serif',
-      fontSize: '48px',
-      color: '#E9EFF2',
-      stroke: '#1b2b3a',
-      strokeThickness: 3,
-    }).setDepth(11).setOrigin(0, 0.5).setName('hud-hearts-empty');
-    this.hudScore = this.add.text(0, 0, '', {
-      fontFamily: '"Noto Sans TC", "PingFang TC", "Heiti TC", sans-serif',
-      fontSize: '48px',
-      color: '#FFFFFF',
-      stroke: '#102A3A',
-      strokeThickness: 6,
-    }).setDepth(10).setOrigin(0, 0.5).setName('hud-score');
+    // 頂部 HUD 已移入獨立 HudScene（批次 8）：GameScene 不再建立任何 HUD 物件，
+    // 只負責把狀態推給 Hud，避免兩套 HUD 重複顯示。
+    this.add.graphics().fillStyle(0xffffff, 0.001); // reserve
 
-    this.add.rectangle(440, 32, 400, 14, 0xc7dced).setOrigin(0, 0.5).setDepth(10);
-    this.progress = this.add.rectangle(440, 32, 0, 14, 0x2a9d8f).setOrigin(0, 0.5).setDepth(10);
-
-    const pauseBtn = this.add.text(1180, 22, '⏸', { fontSize: '32px', color: '#1b4965' })
-      .setOrigin(1, 0).setDepth(10).setInteractive({ useHandCursor: true });
-    pauseBtn.on('pointerup', () => this.requestPause());
+    // 桌面鍵盤提示（左下）：只在非觸控環境顯示，不遮主要戰鬥區
+    const isTouchEnv = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+    if (!isTouchEnv) {
+      this.add.text(24, GAME_H - 24, 'WASD 移動｜Space 射擊', {
+        fontFamily: '"Noto Sans TC", sans-serif', fontSize: '18px',
+        color: '#1b4965', backgroundColor: '#eaf4fbcc', padding: { x: 12, y: 6 },
+      }).setOrigin(0, 1).setDepth(9).setName('kbd-hint');
+    }
 
     this.input2 = new InputController();
     this.input2.attach(this.game.canvas, () => this.requestPause());
@@ -160,6 +135,7 @@ export class GameScene extends Phaser.Scene {
     if (__DEV_HOOK__) {
       this.sys.events.on(Phaser.Scenes.Events.POST_UPDATE, this.samplePostUpdate, this);
     }
+    this.events.on('hud-request-pause', this.requestPause, this);
     this.events.on('resume', () => this.onResume());
     this.events.once('shutdown', () => this.cleanup());
   }
@@ -382,6 +358,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.checkOutcome();
+    this.updateNameTags();
     this.updateHud();
   }
 
@@ -412,63 +389,6 @@ export class GameScene extends Phaser.Scene {
     const body = obj.body as Phaser.Physics.Arcade.Body;
     body.setSize(bodyW, bodyH);
     body.setOffset((obj.width - bodyW) / 2, (obj.height - bodyH) / 2);
-  }
-
-  /**
-   * 左上 HUD 版面（批次 7）。
-   * 尺寸相對舊版 24px 文字放大 3 倍：字級 72px、愛心 3 倍、間距與內距同步放大。
-   * 橫向空間不足時改成上下兩行，字級與愛心大小不縮。
-   * 安全邊距：左 36 / 上 28；右側預留進度條與暫停鈕的橫向距離。
-   */
-  private layoutHud(s: { hp: number; maxHp: number; score: number }): void {
-    const FONT = 72;              // 24px × 3
-    const HEART = 66;             // 愛心字形尺寸（3 倍視覺）
-    const PAD_X = 30;
-    const PAD_Y = 20;
-    const GAP = 26;               // 愛心與分數之間距
-    const SAFE_L = 36;
-    const SAFE_T = 24;
-    // 分數若與進度條（x=440）或暫停鈕（右緣 1180）同高會撞在一起，故限制可用寬度
-    const AVAIL_RIGHT = 400;
-
-    // 實心與空心各自成串，再並排：實心 ♥ 用純紅填色（無描邊），空心 ♡ 用淺灰白＋深藍細框
-    const on = Math.max(0, Math.min(s.hp, s.maxHp));
-    const off = Math.max(0, s.maxHp - on);
-    this.hudText.setText(Array(on).fill('♥').join(' ')).setFontSize(FONT);
-    this.hudHeartsEmpty.setText(Array(off).fill('♡').join(' ')).setFontSize(FONT);
-    this.hudScore.setText(`分數 ${s.score}`);
-    this.hudScore.setFontSize(FONT);
-    this.hudScore.setStroke('#102A3A', Math.round(FONT / 12));
-
-    const heartW = Math.max(1, this.hudText.width + (off > 0 && on > 0 ? 8 : 0) + this.hudHeartsEmpty.width);
-    const scoreW = Math.max(1, this.hudScore.width);
-    const hH = Math.max(HEART, this.hudText.height, this.hudHeartsEmpty.height);
-    const sH = this.hudScore.height;
-
-    const oneLineW = heartW + GAP + scoreW;
-    const stacked = oneLineW > AVAIL_RIGHT;
-    const plateW = stacked
-      ? SAFE_L + 0 + Math.max(heartW, scoreW) + PAD_X * 2
-      : SAFE_L + 0 + oneLineW + PAD_X * 2;
-    const plateH = stacked ? hH + sH + GAP + PAD_Y * 2 : Math.max(hH, sH) + PAD_Y * 2;
-
-    const x0 = SAFE_L;
-    const y0 = SAFE_T;
-    this.hudPlate.clear();
-    this.hudPlate.fillStyle(0x102a3a, 0.55);
-    this.hudPlate.fillRoundedRect(x0, y0, plateW - SAFE_L + PAD_X, plateH, 18);
-
-    const left = x0 + PAD_X;
-    if (stacked) {
-      this.hudText.setPosition(left, y0 + PAD_Y + hH / 2);
-      this.hudHeartsEmpty.setPosition(left + this.hudText.width + (on > 0 ? 8 : 0), y0 + PAD_Y + hH / 2);
-      this.hudScore.setPosition(left, y0 + PAD_Y + hH + GAP + sH / 2);
-    } else {
-      const midY = y0 + PAD_Y + Math.max(hH, sH) / 2;
-      this.hudText.setPosition(left, midY);
-      this.hudHeartsEmpty.setPosition(left + this.hudText.width + (on > 0 ? 8 : 0), midY);
-      this.hudScore.setPosition(left + heartW + GAP, midY);
-    }
   }
 
   private fireBullet(): void {
@@ -508,6 +428,53 @@ export class GameScene extends Phaser.Scene {
     e.elapsedMs = 0;
     e.laneDone = 0;
     e.hasWarnSign = false;
+    this.createNameTag(e);
+  }
+
+  /**
+   * 敵人名稱牌：深藍圓角膠囊 + 淺青細框 + 白色粗體 + 下方指示三角。
+   * 名稱來源為 HAZARD_KINDS[kindId].displayName（不在場景內另寫一套）。
+   * 與預警三角分開繪製，名稱牌在上、預警三角在中間，避免互相遮蓋。
+   */
+  private createNameTag(e: EnemySprite): void {
+    const name = HAZARD_KINDS[e.def.kindId].displayName;
+    const label = this.add.text(0, 0, name, {
+      fontFamily: '"Noto Sans TC", sans-serif', fontStyle: 'bold',
+      fontSize: '20px', color: '#FFFFFF', stroke: '#0d2334', strokeThickness: 3,
+    }).setOrigin(0.5, 0.5);
+    const w = label.width + 26;
+    const h = label.height + 12;
+    const g = this.add.graphics();
+    g.fillStyle(0x1d3b56, 0.9).fillRoundedRect(-w / 2, -h / 2, w, h, h / 2);
+    g.lineStyle(2, 0x7fdffc, 0.7).strokeRoundedRect(-w / 2, -h / 2, w, h, h / 2);
+    // 下指三角
+    g.fillStyle(0x1d3b56, 0.9).fillTriangle(-7, h / 2 - 1, 7, h / 2 - 1, 0, h / 2 + 9);
+    const c = this.add.container(0, 0, [g, label]).setDepth(6);
+    c.setData('tagH', h);
+    this.nameTags.set(e, c);
+  }
+
+  /** 每幀更新名稱牌位置：跟隨敵人、避開預警與邊界、同屏重疊時上下錯開 */
+  private updateNameTags(): void {
+    const placed: { x: number; y: number; w: number }[] = [];
+    for (const [e, c] of [...this.nameTags.entries()]) {
+      if (!e.active) { c.destroy(); this.nameTags.delete(e); continue; }
+      const b = e.getBounds();
+      const tagH = (c.getData('tagH') as number) ?? 32;
+      // 名稱牌置於角色上緣之上；若該敵人同時有預警三角，再往上讓一層
+      const warnOffset = e.hasWarnSign ? 34 : 0;
+      let y = b.top - tagH / 2 - 8 - warnOffset;
+      const halfW = (c.width || 120) / 2;
+      // 邊界不裁切
+      const x = Phaser.Math.Clamp(e.x, 12 + halfW, GAME_W - 12 - halfW);
+      if (y - tagH / 2 < 6) y = b.top + tagH / 2 + 8 + warnOffset;
+      // 同位置堆疊時錯開（不移動敵人、不改行為）
+      for (const p of placed) {
+        if (Math.abs(p.x - x) < 60 && Math.abs(p.y - y) < tagH) y = p.y - tagH - 4;
+      }
+      c.setPosition(x, y);
+      placed.push({ x, y, w: halfW * 2 });
+    }
   }
 
   /** 預警三角：獨立圖層，不烘焙進角色素材 */
@@ -597,6 +564,11 @@ export class GameScene extends Phaser.Scene {
 
   private spawnEnemyBurst(x: number, y: number): void {
     this.spawnEffect('art-enemy-burst', x, y, 64, 'burst');
+  }
+
+  private clearNameTags(): void {
+    for (const c of this.nameTags.values()) c.destroy();
+    this.nameTags.clear();
   }
 
   private cleanupEffects(): void {
@@ -723,6 +695,7 @@ export class GameScene extends Phaser.Scene {
     for (const icon of [...this.warnIcons.keys()]) icon.destroy();
     this.warnIcons.clear();
     this.warnIconOf.clear();
+    this.clearNameTags();
     this.warnQuota.reset();
     this.physics.world.pause();
     const hpBonus = outcome === 'won' ? this.run.hp * BALANCE.score.hpBonusPerLife : 0;
@@ -736,14 +709,23 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  /** HUD 狀態推給 HudScene（HUD 在獨立 scene，永不被暫停，也不受背景影響） */
   private updateHud(): void {
+    if (!this.hudReady) return;
     const s = this.run.snapshot();
-    this.layoutHud(s);
-    const p = Phaser.Math.Clamp(s.elapsedMs / this.level.durationMs, 0, 1);
-    this.progress.width = 400 * p;
+    this.scene.get('Hud').events.emit('hud-update', {
+      hp: s.hp,
+      maxHp: s.maxHp,
+      score: s.score,
+      elapsedMs: s.elapsedMs,
+      durationMs: this.level.durationMs,
+      phase: this.run.phase,
+    });
   }
 
   private cleanup(): void {
+    this.events.off('hud-request-pause', this.requestPause, this);
+    this.clearNameTags();
     this.orientationCleanup?.();
     this.orientationCleanup = null;
     this.touch?.destroy();

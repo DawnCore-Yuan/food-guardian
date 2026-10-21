@@ -2,6 +2,32 @@ import Phaser from 'phaser';
 import { loadSettings, saveSettings } from '../systems/storage';
 import type { RunResult } from '../types';
 
+interface HudState {
+  hp: number;
+  maxHp: number;
+  score: number;
+  elapsedMs: number;
+  durationMs: number;
+  phase: 'playing' | 'finishing' | 'won' | 'lost';
+}
+
+/**
+ * 頂部資訊列配色（依 docs/art-direction/gameplay-concept-v1.jpg 取樣）
+ * 深藍底 + 青藍細框 + 綠色進度 + 淺金分數
+ */
+const C = {
+  plate: 0x1d3b56,
+  plateAlpha: 0.88,
+  frame: 0x7fdffc,
+  trackNavy: 0x0e2b42,
+  fillGreen: 0x46d17a,
+  fillGreenHi: 0x8ff0b0,
+  gold: '#FFE6A3',
+  goldStroke: '#3a2a10',
+  white: '#FFFFFF',
+  navyStroke: '#0d2334',
+};
+
 /**
  * HudScene：永遠不被暫停的 UI 層（規格 §11.1）。
  * 暫停、結算都放在這裡，確保 GameScene 暫停後按鈕仍可點。
@@ -9,13 +35,320 @@ import type { RunResult } from '../types';
 export class HudScene extends Phaser.Scene {
   private overlay: Phaser.GameObjects.Container | null = null;
 
+  // 頂部資訊列
+  private bar!: Phaser.GameObjects.Container;
+  private hearts: Phaser.GameObjects.Text[] = [];
+  private heartEmpty: Phaser.GameObjects.Text[] = [];
+  private scoreLabel!: Phaser.GameObjects.Text;
+  private scoreValue!: Phaser.GameObjects.Text;
+  private logo!: Phaser.GameObjects.Image;
+  private track!: Phaser.GameObjects.Graphics;
+  private fill!: Phaser.GameObjects.Graphics;
+  private fillHi!: Phaser.GameObjects.Graphics;
+  private timeText!: Phaser.GameObjects.Text;
+  private pauseHit!: Phaser.GameObjects.Zone;
+  private pauseG!: Phaser.GameObjects.Graphics;
+  private finishNote!: Phaser.GameObjects.Text;
+
+  // 版面幾何（由 layoutBar 計算，供各元素定位）
+  private geo = {
+    barY: 26, barH: 64,
+    heartsX: 20, heartsY: 26,
+    heartGap: 30, heartSize: 26,
+    divX: 0,
+    scoreX: 0, scoreY: 26,
+    logoX: 0, logoW: 0,
+    progX: 0, progW: 0, progY: 26, progH: 16,
+    timeX: 0,
+    pauseX: 0,
+  };
+
+  private lastState: HudState | null = null;
+
   constructor() { super({ key: 'Hud', active: false }); }
 
   create(): void {
-    this.events.on('show-pause', () => this.showPause());
-    this.events.on('finished', (r: RunResult) => this.showResult(r));
-    this.events.once('shutdown', () => this.clearOverlay());
+    this.lastState = null;
+    this.hearts = [];
+    this.heartEmpty = [];
+    this.buildBar();
+    this.layoutBar();
+
+    this.events.on('show-pause', this.showPause, this);
+    this.events.on('finished', this.showResult, this);
+    this.events.on('hud-update', this.onHudUpdate, this);
+    this.events.once('shutdown', this.onShutdown, this);
+    this.scale.on('resize', this.onResize, this);
     this.events.emit('hud-ready');
+  }
+
+  private onResize(): void {
+    if (this.bar) this.layoutBar();
+  }
+
+  private onShutdown(): void {
+    this.clearOverlay();
+    this.events.off('show-pause', this.showPause, this);
+    this.events.off('finished', this.showResult, this);
+    this.events.off('hud-update', this.onHudUpdate, this);
+    this.scale.off('resize', this.onResize, this);
+    this.bar?.destroy(true);
+    this.bar = undefined as unknown as Phaser.GameObjects.Container;
+    this.hearts = [];
+    this.heartEmpty = [];
+  }
+
+  /** 由 GameScene 推送的即時狀態（HUD 不自己猜時間，也不新增計時器） */
+  private onHudUpdate(s: HudState): void {
+    this.lastState = s;
+    const p = Phaser.Math.Clamp(
+      s.phase === 'finishing' || s.phase === 'won' || s.phase === 'lost'
+        ? 1
+        : s.elapsedMs / Math.max(1, s.durationMs),
+      0, 1,
+    );
+    this.paintProgress(p);
+    this.paintHearts(s.hp, s.maxHp);
+    this.paintScore(s.score);
+    this.paintTime(s);
+  }
+
+  /** 建立頂部資訊列（獨立 HudScene；不受戰鬥背景與暫停影響） */
+  private buildBar(): void {
+    const bar = this.add.container(0, 0).setDepth(50);
+    this.bar = bar;
+
+    // 膠囊底板 + 淺青細框
+    const plate = this.add.graphics();
+    plate.setName('bar-plate');
+    bar.add(plate);
+
+    // 五顆愛心：固定五格，實心/空心分開，避免扣血後位置跳動
+    for (let i = 0; i < 5; i++) {
+      const solid = this.add.text(0, 0, '♥', {
+        fontFamily: 'system-ui, "Segoe UI Symbol", sans-serif',
+        fontSize: '34px', color: '#FF0000',
+      }).setOrigin(0, 0.5).setVisible(false);
+      const hollow = this.add.text(0, 0, '♡', {
+        fontFamily: 'system-ui, "Segoe UI Symbol", sans-serif',
+        fontSize: '34px', color: '#9fc3d6',
+      }).setOrigin(0, 0.5).setVisible(false);
+      bar.add(solid); bar.add(hollow);
+      this.hearts.push(solid); this.heartEmpty.push(hollow);
+    }
+
+    // 分隔線
+    const div = this.add.graphics().setName('bar-div');
+    bar.add(div);
+
+    // 分數
+    this.scoreLabel = this.add.text(0, 0, '分數', {
+      fontFamily: '"Noto Sans TC", sans-serif', fontStyle: 'bold',
+      fontSize: '24px', color: C.white, stroke: C.navyStroke, strokeThickness: 4,
+    }).setOrigin(0, 0.5);
+    this.scoreValue = this.add.text(0, 0, '0', {
+      fontFamily: '"Noto Sans TC", monospace', fontStyle: 'bold',
+      fontSize: '30px', color: C.gold, stroke: C.goldStroke, strokeThickness: 4,
+    }).setOrigin(0, 0.5);
+    bar.add(this.scoreLabel); bar.add(this.scoreValue);
+
+    // LOGO（透明 PNG，不加底板、不攔截觸控）
+    if (this.textures.exists('art-logo')) {
+      this.logo = this.add.image(0, 0, 'art-logo').setOrigin(0.5);
+      bar.add(this.logo);
+    } else {
+      this.logo = this.add.image(0, 0, '__DEFAULT').setOrigin(0.5).setVisible(false);
+    }
+
+    // 進度條：軌道 / 填充 / 亮面
+    this.track = this.add.graphics().setName('bar-track');
+    this.fill = this.add.graphics().setName('bar-fill');
+    this.fillHi = this.add.graphics().setName('bar-fill-hi');
+    bar.add(this.track); bar.add(this.fill); bar.add(this.fillHi);
+
+    // 時間（等寬，避免跳動）
+    this.timeText = this.add.text(0, 0, '00:00 / 03:00', {
+      fontFamily: '"DejaVu Sans Mono", ui-monospace, monospace', fontStyle: 'bold',
+      fontSize: '24px', color: C.white, stroke: C.navyStroke, strokeThickness: 4,
+    }).setOrigin(0.5, 0.5);
+    bar.add(this.timeText);
+
+    // 暫停鈕（圓形 + 白色雙直線）；命中區見 layoutBar
+    const pauseG = this.add.graphics().setName('bar-pause');
+    bar.add(pauseG);
+    this.pauseG = pauseG;
+    this.pauseHit = this.add.zone(0, 0, 48, 48).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    this.pauseHit.on('pointerup', () => {
+      // 只送暫停，不觸發搖桿或射擊
+      const gs = this.scene.get('Game');
+      gs.events.emit('hud-request-pause');
+    });
+    bar.add(this.pauseHit);
+
+    // 收尾中提示（小字，避免 03:05 / 03:00）
+    this.finishNote = this.add.text(0, 0, '收尾中', {
+      fontFamily: '"Noto Sans TC", sans-serif', fontStyle: 'bold',
+      fontSize: '18px', color: C.gold, stroke: C.navyStroke, strokeThickness: 3,
+    }).setOrigin(0.5, 0).setVisible(false);
+    bar.add(this.finishNote);
+  }
+
+  // ── 版面與繪製 ───────────────────────────────────────────
+  /** 依畫布寬度安排一整條資訊列；寬度不足時依序縮進度條、縮 LOGO、減留白 */
+  private layoutBar(): void {
+    const W = this.scale.width;
+    const H = this.scale.height;
+    const m = Math.round(W * 0.018);         // 左右安全邊距
+    const barTop = Math.round(H * 0.018);
+    const barH = Math.max(52, Math.round(H * 0.086));
+    const barW = W - m * 2;
+    const cy = barTop + barH / 2;
+
+    const pauseR = Math.round(Math.min(barH * 0.46, 26));
+    const pauseX = m + barW - pauseR - 8;
+
+    // 時間（等寬）
+    this.timeText.setFontSize(Math.round(barH * 0.36));
+    const timeW = this.timeText.width;
+    const timeX = pauseX - pauseR - 14 - timeW / 2;
+
+    // 愛心：固定五格
+    const heartSize = Math.round(barH * 0.5);
+    this.hearts.forEach((h) => h.setFontSize(heartSize));
+    this.heartEmpty.forEach((h) => h.setFontSize(heartSize));
+    const heartStep = Math.round(heartSize * 0.92);
+
+    // 分數
+    this.scoreLabel.setFontSize(Math.round(barH * 0.36));
+    this.scoreValue.setFontSize(Math.round(barH * 0.44));
+
+    const heartsW = heartStep * 5;
+    const divPad = Math.round(barH * 0.3);
+    // 分數字寬以「版面保留 7 格」固定，避免位數變動推擠後面的 LOGO
+    // 固定保留「分數 + 6 位數字」寬度：位數增加時不會推擠 LOFO/進度條
+    this.scoreValue.setText('999999');
+    const scoreReserve = this.scoreLabel.width + 10 + this.scoreValue.width;
+    if (this.lastState) this.scoreValue.setText(String(this.lastState.score));
+    else this.scoreValue.setText('0');
+
+    // LOGO 與進度條的可用空間
+    const fixedLeft = m + heartSize * 0.2 + heartsW + divPad * 2 + scoreReserve + divPad;
+    const rightLimit = timeX - timeW / 2 - 14;
+    let avail = Math.max(120, rightLimit - fixedLeft);
+
+    // LOGO 高度約 barH * 0.86，等比
+    let logoH = Math.round(barH * 0.86);
+    if (this.logo.texture.key === 'art-logo') {
+      const src = this.textures.get('art-logo').getSourceImage() as HTMLImageElement;
+      const ratio = logoH / src.height;
+      let logoW = src.width * ratio;
+      const logoMaxW = avail * 0.38;
+      if (logoW > logoMaxW) { logoW = logoMaxW; logoH = logoW * (src.height / src.width); }
+      this.logo.setDisplaySize(logoW, logoH);
+      this.geo.logoW = logoW;
+    } else {
+      this.geo.logoW = 0;
+    }
+
+    const progX = fixedLeft + this.geo.logoW + Math.round(barH * 0.18);
+    const progW = Math.max(60, rightLimit - progX - Math.round(barH * 0.18));
+    const progH = Math.max(10, Math.round(barH * 0.24));
+    this.geo.progX = progX;
+    this.geo.progW = progW;
+    this.geo.progH = progH;
+
+    // 底板
+    const plate = this.bar.getByName('bar-plate') as Phaser.GameObjects.Graphics;
+    plate.clear();
+    plate.fillStyle(C.plate, C.plateAlpha);
+    plate.fillRoundedRect(m, barTop, barW, barH, barH / 2);
+    plate.lineStyle(2, C.frame, 0.65);
+    plate.strokeRoundedRect(m, barTop, barW, barH, barH / 2);
+
+    // 愛心
+    const heartsStart = m + heartSize * 0.2;
+    this.hearts.forEach((h, i) => {
+      const x = heartsStart + i * heartStep + heartStep / 2;
+      h.setPosition(x, cy);
+      this.heartEmpty[i].setPosition(x, cy);
+    });
+
+    // 分隔線
+    const divX = heartsStart + heartsW + divPad;
+    const div = this.bar.getByName('bar-div') as Phaser.GameObjects.Graphics;
+    div.clear();
+    div.lineStyle(2, C.frame, 0.45);
+    div.beginPath(); div.moveTo(divX, barTop + barH * 0.24); div.lineTo(divX, barTop + barH * 0.76); div.strokePath();
+
+    // 分數
+    const scoreX = divX + divPad;
+    this.scoreLabel.setPosition(scoreX, cy);
+    this.scoreValue.setPosition(scoreX + this.scoreLabel.width + 10, cy);
+
+    // LOGO
+    if (this.geo.logoW > 0) this.logo.setPosition(fixedLeft + this.geo.logoW / 2, cy);
+    else this.logo.setPosition(fixedLeft, cy);
+
+    // 進度條
+    this.timeText.setPosition(timeX, cy);
+    this.geo.progY = cy;
+
+    // 暫停鈕
+    this.pauseG.clear();
+    this.pauseG.fillStyle(0x16334a, 1).fillCircle(pauseX, cy, pauseR);
+    this.pauseG.lineStyle(2.5, C.frame, 0.95).strokeCircle(pauseX, cy, pauseR);
+    const bw = Math.max(4, pauseR * 0.26), bh2 = Math.max(12, pauseR * 0.95);
+    this.pauseG.fillStyle(0xffffff, 1);
+    this.pauseG.fillRoundedRect(pauseX - pauseR * 0.34, cy - bh2 / 2, bw, bh2, 2);
+    this.pauseG.fillRoundedRect(pauseX + pauseR * 0.34 - bw, cy - bh2 / 2, bw, bh2, 2);
+    // 命中區：視覺半徑 26，但命中區至少 48×48
+    const hit = Math.max(48, pauseR * 2);
+    this.pauseHit.setSize(hit, hit);
+    this.pauseHit.setPosition(pauseX, cy);
+
+    // 收尾中提示
+    this.finishNote.setPosition(progX + progW / 2, barTop + barH + 4);
+
+    // 重新繪製當前進度
+    if (this.lastState) this.onHudUpdate(this.lastState);
+  }
+
+  private paintHearts(hp: number, maxHp: number): void {
+    for (let i = 0; i < 5; i++) {
+      const alive = i < Math.min(hp, maxHp);
+      this.hearts[i].setVisible(alive);
+      this.heartEmpty[i].setVisible(!alive);
+    }
+  }
+
+  private paintScore(score: number): void {
+    this.scoreValue.setText(String(score));
+  }
+
+  private paintTime(s: HudState): void {
+    const capped = Math.min(s.elapsedMs, s.durationMs);
+    this.timeText.setText(`${fmt(capped)} / ${fmt(s.durationMs)}`);
+    this.finishNote.setVisible(s.phase === 'finishing');
+  }
+
+  private paintProgress(p: number): void {
+    const { progX, progW, progH } = this.geo;
+    const y = this.geo.progY;
+    const x0 = progX, y0 = y - progH / 2;
+    this.track.clear();
+    this.track.fillStyle(C.trackNavy, 1).fillRoundedRect(x0, y0, progW, progH, progH / 2);
+    this.track.lineStyle(2, C.frame, 0.9).strokeRoundedRect(x0, y0, progW, progH, progH / 2);
+    const w = Math.max(0, Math.min(progW, progW * p));
+    this.fill.clear();
+    if (w > 0) {
+      this.fill.fillStyle(C.fillGreen, 1).fillRoundedRect(x0, y0, w, progH, progH / 2);
+      this.fillHi.clear();
+      this.fillHi.fillStyle(C.fillGreenHi, 0.5).fillRoundedRect(
+        x0 + 2, y0 + progH * 0.18, Math.max(0, w - 4), progH * 0.3, progH * 0.15,
+      );
+    } else {
+      this.fillHi.clear();
+    }
   }
 
   private clearOverlay(): void {
@@ -94,4 +427,12 @@ export class HudScene extends Phaser.Scene {
       (this.scene.get('Game') as unknown as { stopForMenu: () => void }).stopForMenu();
     });
   }
+}
+
+/** MM:SS，分鐘與秒都補零（顯示用，不改遊戲規則） */
+function fmt(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }

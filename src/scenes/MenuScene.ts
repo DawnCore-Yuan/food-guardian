@@ -8,9 +8,21 @@ export class MenuScene extends Phaser.Scene {
     const { width, height } = this.scale;
     this.cameras.main.setBackgroundColor('#eaf4fb');
 
-    this.add.text(width / 2, height * 0.22, '食安防衛隊', {
-      fontFamily: '"Noto Sans TC", sans-serif', fontSize: '72px', color: '#1b4965',
-    }).setOrigin(0.5);
+    // 標誌：使用高解析原稿（2097×750，含透明背景）。
+    // 等比縮放至可讀寬度；手機（canvas 較窄）會依空間再縮。
+    // 標誌本身是透明 PNG，直接疊在淺色背景上即可，不另加底板。
+    if (this.textures.exists('art-logo')) {
+      const tex = this.textures.get('art-logo').getSourceImage() as HTMLImageElement;
+      const maxW = Math.min(width * 0.62, 620);
+      const ratio = Math.min(maxW / tex.width, (height * 0.26) / tex.height);
+      this.add.image(width / 2, height * 0.24, 'art-logo')
+        .setScale(ratio)
+        .setOrigin(0.5);
+    } else {
+      this.add.text(width / 2, height * 0.22, '食安防衛隊', {
+        fontFamily: '"Noto Sans TC", sans-serif', fontSize: '72px', color: '#1b4965',
+      }).setOrigin(0.5);
+    }
 
     // B 階段測試版標示：避免與正式三段關卡文案混淆
     this.add.text(width / 2, height * 0.32, 'C 階段｜180 秒｜四種敵人', {

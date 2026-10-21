@@ -97,62 +97,27 @@ test('暱稱：去首尾空白、上限 12 字、空白退回匿名隊員、控�
   assert.equal(normalizeNickname('a\u0007b'), 'ab');
 });
 
-// ── 2. UI：模擬榜單與輸入流程 ──
-test('UI：模擬模式標示、每頁 10 名、名次/暱稱/分數/勝負欄位', async () => {
+// ── 2. UI：未連線時必須顯示「尚未開放」，不得出現假榜單 ──
+test('UI：未連線時顯示「排行榜尚未開放」，不出現任何榜單資料', async () => {
   installDom();
   const { LeaderboardUI } = await mod('ui');
   const ui = new LeaderboardUI();
-  assert.equal(ui.getMode(), 'mock', '未設定連線時必須是 mock');
-  await new Promise((r) => setTimeout(r, 500));
+  assert.equal(ui.getMode(), 'unavailable', '未設定連線時必須是 unavailable');
   ui.openBoard(() => {});
-  await new Promise((r) => setTimeout(r, 50));
-  const scrim = document.body.children.find((c) => c.className === 'lb-scrim') ?? document.getElementById('ui-layer').children[0];
+  await new Promise((r) => setTimeout(r, 80));
+  const scrim = document.getElementById('ui-layer').children[0];
   assert.ok(scrim, '應建立 scrim');
-  const badges = scrim.querySelectorAll('lb-badge-mock');
-  assert.equal(badges.length, 1, '模擬模式必須有標記');
-  const table = scrim.findByClass('lb-table');
-  assert.ok(table, '應有榜單表格');
-  const tbody = table.children.find((n) => n.tagName === 'TBODY');
-  const rows = tbody.children;
-  assert.equal(rows.length, 10, '每頁 10 名');
-  assert.equal(rows[0].children.map((td) => td.textContent).join('|').split('|').length, 4, '每列四欄');
-  const head = table.children.find((n) => n.tagName === 'THEAD');
-  assert.equal(head.children[0].children.map((th) => th.textContent).join(','), '名次,暱稱,分數,勝負');
-  // 分數由高到低
-  const scores = rows.map((r) => Number(r.children[2].textContent.replace(/,/g, '')));
-  assert.deepEqual(scores, [...scores].sort((a, b) => b - a), '分數需由高到低');
-  // 前四名刻意同分，名次仍遞增（同分依登錄時間）
-  assert.equal(rows[0].children[2].textContent, rows[3].children[2].textContent, '前四名同分');
-  assert.deepEqual(rows.slice(0, 4).map((r) => r.children[0].textContent), ['1', '2', '3', '4']);
+  const text = scrim.textContent;
+  assert.ok(text.includes('排行榜尚未開放'), '必須明示尚未開放');
+  assert.ok(!text.includes('模擬'), '不得出現模擬字樣');
+  assert.equal(scrim.findByClass('lb-table'), undefined, '不得渲染任何榜單表格');
 });
 
-test('UI：結算登錄 → 顯示名次，同一局重複顯示結果不重送', async () => {
+test('UI：未連線時結算不提供登錄（避免假名次）', async () => {
   installDom();
   const { LeaderboardUI } = await mod('ui');
   const ui = new LeaderboardUI();
-  const ctx = { score: 1234, outcome: 'won', elapsedMs: 180000, kills: 30, escapes: 2 };
-  ui.openSubmit(ctx, () => {});
-  await new Promise((r) => setTimeout(r, 200));
-  const scrim = document.getElementById('ui-layer').children[0];
-  const card = scrim.children[0];
-  const input = card?.findByClass('lb-input');
-  assert.ok(input, '應有暱稱輸入框');
-  input.value = '  小八  ';
-  const allBtns = (node) => { const out = []; const walk = (n) => { for (const ch of n.children) { if (ch.tagName === 'BUTTON') out.push(ch); walk(ch); } }; walk(node); return out; };
-  const submit = allBtns(card).find((b) => b.textContent === '登錄成績');
-  assert.ok(submit, '應有登錄成績按鈕');
-  submit.dispatch('click');
-  await new Promise((r) => setTimeout(r, 700));
-  const rank = card.findByClass('lb-rank');
-  assert.ok(rank, '登錄後應顯示名次區塊');
-  assert.match(rank.textContent, /^(第 \d+ 名|未進前 100 名)$/);
-  assert.ok(allBtns(card).some((b) => b.textContent === '回首頁'), '應保留回首頁');
-  // 再次開啟同一局結算：直接顯示已登錄結果，不重新出現輸入表單
-  ui.openSubmit(ctx, () => {});
-  await new Promise((r) => setTimeout(r, 50));
-  const scrim2 = document.getElementById('ui-layer').children[0];
-  assert.equal(scrim2.children[0].findByClass('lb-input'), undefined, '同局不得再次送出');
-  assert.ok(scrim2.children[0].findByClass('lb-rank'), '同局重開需顯示原名次');
+  assert.equal(ui.currentTicketId(), null, '未連線時不得有單局識別');
 });
 
 test('API：未設定連線時不發出請求，並回傳 not_configured', async () => {

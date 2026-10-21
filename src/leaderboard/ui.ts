@@ -2,7 +2,6 @@ import { loadLeaderboardConfig, isLeaderboardConfigured, type LeaderboardConfig 
 import { fetchPage, startRun, submitRun } from './api';
 import { normalizeNickname } from './nickname';
 import { LeaderboardError, type LeaderboardEntry, type LeaderboardPage, type RunTicket, type SubmitResult } from './types';
-import { MOCK_PAGES, MOCK_SUBMIT } from './mock';
 
 /**
  * 排行榜 UI 層（HTML overlay，掛在 #ui-layer）。
@@ -12,7 +11,7 @@ import { MOCK_PAGES, MOCK_SUBMIT } from './mock';
  * 排行榜任何失敗只影響這一層：不 throw 進場景、不阻止遊戲。
  */
 
-type Mode = 'live' | 'mock';
+type Mode = 'live' | 'unavailable';
 
 type SubmitState =
   | { kind: 'idle' }
@@ -52,11 +51,6 @@ function injectStyle(): void {
       padding: 12px 16px 6px; gap: 8px;
     }
     .lb-title { font-size: 24px; font-weight: 700; margin: 0; }
-    .lb-badge-mock {
-      display: inline-block; font-size: 13px; font-weight: 700; color: #7a3e00;
-      background: #ffe8b8; border: 2px dashed #d98324; border-radius: 8px;
-      padding: 2px 8px; margin-left: 8px;
-    }
     .lb-body { padding: 0 16px 12px; overflow: auto; -webkit-overflow-scrolling: touch; }
     .lb-table { width: 100%; border-collapse: collapse; font-size: 17px; }
     .lb-table th { text-align: left; color: #5a8aa8; font-weight: 600; font-size: 14px; padding: 6px 4px; }
@@ -139,12 +133,7 @@ function outcomeLabel(o: 'won' | 'lost'): string {
 
 export class LeaderboardUI {
   private cfg: LeaderboardConfig = loadLeaderboardConfig();
-  private mode: Mode = isLeaderboardConfigured(this.cfg) ? 'live' : 'mock';
-  /** dev-only 模擬故障：?lbMock=fail（載入失敗）／?lbMock=empty（空榜）／?lbMock=slow（延遲） */
-  private mockScenario = (() => {
-    if (!__DEV_HOOK__) return '' as string;
-    return new URLSearchParams(location.search).get('lbMock') ?? '';
-  })();
+  private mode: Mode = isLeaderboardConfigured(this.cfg) ? 'live' : 'unavailable';
   private scrim: HTMLElement | null = null;
   private ticket: RunTicket | null = null;
   private pendingStart: Promise<void> | null = null;
@@ -152,25 +141,16 @@ export class LeaderboardUI {
 
   constructor() {
     injectStyle();
-    if (this.mode === 'mock') {
-      this.mockTicketId = 'mock-' + Math.random().toString(36).slice(2, 10) + '-' + Date.now().toString(36);
-    } else {
-      this.prefetch();
-    }
+    this.prefetch();
   }
 
   getMode(): Mode { return this.mode; }
 
-  /** 這局拿到的伺服器識別；沒有（或 mock 模式）回 null */
+  /** 這局拿到的伺服器識別；沒有連線或尚未取得時回 null */
   currentTicketId(): string | null {
-    if (this.mode === 'live') return this.ticket ? this.ticket.ticketId : null;
-    // 模擬模式核發的「模擬識別」：只存在記憶體、只給 UI 流程使用，
-    // 格式與 server ticket 不同（mock- 前綴），不可能通過伺服器驗證。
-    return this.mockTicketId;
+    return this.mode === 'live' && this.ticket ? this.ticket.ticketId : null;
   }
 
-  /** 模擬模式的單局識別（每次 newRun 換一個） */
-  private mockTicketId: string | null = null;
 
   /** 遊戲開始時先取得單局識別；失敗不阻擋遊戲，結算時再重試 */
   prefetch(): void {
@@ -185,10 +165,6 @@ export class LeaderboardUI {
   /** 每次真正開始一局（含再玩一次）都呼叫：換新的單局識別 */
   newRun(): void {
     this.lastSubmit = null;
-    if (this.mode === 'mock') {
-      this.mockTicketId = 'mock-' + Math.random().toString(36).slice(2, 10) + '-' + Date.now().toString(36);
-      return;
-    }
     this.prefetch();
   }
 
@@ -241,7 +217,6 @@ export class LeaderboardUI {
     const head = el('div', 'lb-head');
     const titles = el('div');
     titles.appendChild(el('h2', 'lb-title', '排行榜'));
-    if (this.mode === 'mock') titles.appendChild(el('span', 'lb-badge-mock', '模擬資料'));
     head.appendChild(titles);
     head.appendChild(button('關閉', () => { this.close(); onClose(); }, 'lb-btn ghost'));
     card.appendChild(head);
@@ -289,33 +264,21 @@ export class LeaderboardUI {
       }
       table.appendChild(tbody);
       body.appendChild(table);
-      body.appendChild(el('div', 'lb-note', this.mode === 'mock'
-        ? '以上為明確標示的模擬資料，尚未連線 Supabase。'
-        : '只列出前 100 名。同分時較早登錄者在前。'));
+      body.appendChild(el('div', 'lb-note', '只列出前 100 名。同分時較早登錄者在前。'));
     };
 
     const load = async (): Promise<void> => {
       body.replaceChildren(el('div', 'lb-loading', '排行榜載入中…'));
       setPager();
-      if (this.mode === 'mock') {
-        if (this.mockScenario === 'slow') await new Promise((r) => setTimeout(r, 2500));
-        if (this.mockScenario === 'fail') {
-          body.replaceChildren(
-            el('div', 'lb-error', '排行榜暫時無法載入：無法連線（模擬故障）'),
-            el('div', 'lb-hint', '遊戲本身不受影響，可以照常開始遊戲。'),
-            button('重新載入', () => { void load(); }),
-          );
-          return;
-        }
-        if (this.mockScenario === 'empty') {
-          body.replaceChildren(el('div', 'lb-empty', '目前還沒有人上榜（模擬空榜）。'));
-          return;
-        }
+      if (this.mode !== 'live') {
+        body.replaceChildren(
+          el('div', 'lb-error', '排行榜尚未開放。'),
+          el('div', 'lb-hint', '目前版本尚未連線排行榜服務，遊戲本身不受影響，可以照常開始遊戲。'),
+        );
+        return;
       }
       try {
-        const p = this.mode === 'mock'
-          ? MOCK_PAGES[Math.min(page - 1, MOCK_PAGES.length - 1)]
-          : await fetchPage(this.cfg, page);
+        const p = await fetchPage(this.cfg, page);
         totalPages = Math.max(1, p.totalPages);
         if (page > totalPages) page = totalPages;
         renderRows(p);
@@ -351,17 +314,13 @@ export class LeaderboardUI {
     const summary = (): void => {
       body.appendChild(el('div', 'lb-big', `分數 ${ctx.score.toLocaleString('zh-TW')}`));
       body.appendChild(el('div', 'lb-sub', `${outcomeLabel(ctx.outcome)}｜擊破 ${ctx.kills}　逃脫 ${ctx.escapes}`));
-      if (this.mode === 'mock') body.appendChild(el('div', 'lb-badge-mock', '模擬模式：不會寫入雲端'));
-    };
+};
 
     const renderDone = (result: SubmitResult, nickname: string): void => {
       body.replaceChildren();
       body.appendChild(el('div', 'lb-sub', result.duplicate ? '這一局先前已登錄（不會重複寫入）' : '登錄成功'));
       body.appendChild(el('div', 'lb-rank', result.rank !== null ? `第 ${result.rank} 名` : '未進前 100 名'));
       body.appendChild(el('div', 'lb-sub', `暱稱：${nickname || '（已登錄）'}　分數：${ctx.score.toLocaleString('zh-TW')}`));
-      if (this.mode === 'mock') {
-        body.appendChild(el('div', 'lb-sub', '（模擬模式：示範名次，未寫入任何伺服器）'));
-      }
       actions.replaceChildren();
       if (result.rank !== null) {
         actions.appendChild(button('查看排行榜', () => this.openBoard(onBackToMenu)));
@@ -419,9 +378,7 @@ export class LeaderboardUI {
         hint.className = 'lb-hint';
         try {
           let result: SubmitResult;
-          if (this.mode === 'mock') {
-            result = await MOCK_SUBMIT(!!this.duplicatedThisRun(), ctx.score);
-          } else {
+          {
             const t = await this.ensureTicket();
             if (!t) throw new LeaderboardError('no_ticket', '沒有取得本局識別，請重新開始一局再登錄', true);
             result = await submitRun(this.cfg, {
@@ -461,7 +418,4 @@ export class LeaderboardUI {
     this.mount(card, onBackToMenu);
   }
 
-  private duplicatedThisRun(): boolean {
-    return this.lastSubmit?.state.kind === 'done';
-  }
 }

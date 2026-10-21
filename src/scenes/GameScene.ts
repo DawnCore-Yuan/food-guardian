@@ -836,7 +836,7 @@ export class GameScene extends Phaser.Scene {
     const officialLevel = this.level.id === 'official-180s';
     const normalEnd = true; // 只有 checkOutcome → finish 會到達這裡
     let cloudConfigured = false;
-    let mode: 'live' | 'mock' = 'live';
+    let mode: 'live' | 'unavailable' = 'unavailable';
     let runTicketId: string | null = null;
     try {
       mode = leaderboard().getMode();

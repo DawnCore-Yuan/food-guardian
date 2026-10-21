@@ -163,6 +163,10 @@ function updateLaneShift(e: EnemyBody, _dt: number, quota: WarnQuota, host: Beha
   const pauseMs = p.lanePauseMs ?? 400;
 
   if (e.laneDone >= segs) {
+    // 換線結束：恢復向左推進（不再等 x<=1000）
+    e.phase = 'cruise';
+    e.phaseT = 0;
+    e.setVelocity(0, 0);
     e.setVelocityX(-e.def.speed);
     return;
   }
@@ -182,7 +186,8 @@ function updateLaneShift(e: EnemyBody, _dt: number, quota: WarnQuota, host: Beha
       // 交錯上下換線
       const dir = e.laneDone % 2 === 0 ? 1 : -1;
       const targetY = e.baseY + dir * stepPx;
-      const clamped = Math.min(600, Math.max(120, targetY));
+      const half = e.def.body.h / 2;
+      const clamped = Math.min(630 - half, Math.max(90 + half, targetY));
       const sign = Math.sign(clamped - e.y) || 1;
       e.setVelocity(0, sign * 150);
       e.baseY = clamped;
@@ -211,8 +216,9 @@ function updateLaneShift(e: EnemyBody, _dt: number, quota: WarnQuota, host: Beha
     return;
   }
 
-  // cruise：等待冷卻後取預警名額
-  e.setVelocity(0, 0);
+  // cruise：等待冷卻後取預警名額（保持水平巡航，不強制歸零）
+  e.setVelocityX(-e.def.speed);
+  e.setVelocityY(0);
   if (e.cooldownMs <= 0) {
     if (quota.tryAcquire(e.uid)) {
       e.phase = 'warning';

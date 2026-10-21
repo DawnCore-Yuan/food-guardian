@@ -40,6 +40,9 @@ export class GameScene extends Phaser.Scene {
   private invulnMs = 0;
   private hudReady = false;
   private hudText!: Phaser.GameObjects.Text;
+  private hudHeartsEmpty!: Phaser.GameObjects.Text;
+  private hudScore!: Phaser.GameObjects.Text;
+  private hudPlate!: Phaser.GameObjects.Graphics;
   private progress!: Phaser.GameObjects.Rectangle;
   private level!: LevelConfig;
 
@@ -100,9 +103,33 @@ export class GameScene extends Phaser.Scene {
 
     this.add.graphics().fillStyle(0xffffff, 0.001); // reserve
 
-    this.hudText = this.add.text(24, 20, '', {
-      fontFamily: '"Noto Sans TC", sans-serif', fontSize: '24px', color: '#1b4965',
-    }).setDepth(10);
+    // 左上血量／分數（批次 7）：3 倍尺寸、深藍半透明圓角底板、白字深藍描邊。
+    // 底板先建、文字後建，確保同一 depth 下文字在上。
+    // 注意：subText 用來放置「分數」，橫向空間不足時會換到第二行（不動字級）。
+    this.hudPlate = this.add.graphics().setDepth(10).setName('hud-plate');
+    // 愛心：實心 ♥ 必須是字型「填色」，❌ 不能走描邊 → 因此實心與空心分成兩個 Text：
+    //   heartsOn  = 實心 ♥，純 #FF0000 填色、無描邊
+    //   heartsOff = 空心 ♡，淺灰白填色 + 深藍細描邊
+    // 另外 ♥/♡ 屬裝飾符號，若交給 CJK 字型會被畫成字形內建樣式（♥ 變白心），故用系統 sans-serif。
+    this.hudText = this.add.text(0, 0, '', {
+      fontFamily: 'system-ui, "Segoe UI Symbol", sans-serif',
+      fontSize: '48px',
+      color: '#FF0000',
+    }).setDepth(10).setOrigin(0, 0.5).setName('hud-hearts');
+    this.hudHeartsEmpty = this.add.text(0, 0, '', {
+      fontFamily: 'system-ui, "Segoe UI Symbol", sans-serif',
+      fontSize: '48px',
+      color: '#E9EFF2',
+      stroke: '#1b2b3a',
+      strokeThickness: 3,
+    }).setDepth(11).setOrigin(0, 0.5).setName('hud-hearts-empty');
+    this.hudScore = this.add.text(0, 0, '', {
+      fontFamily: '"Noto Sans TC", "PingFang TC", "Heiti TC", sans-serif',
+      fontSize: '48px',
+      color: '#FFFFFF',
+      stroke: '#102A3A',
+      strokeThickness: 6,
+    }).setDepth(10).setOrigin(0, 0.5).setName('hud-score');
 
     this.add.rectangle(440, 32, 400, 14, 0xc7dced).setOrigin(0, 0.5).setDepth(10);
     this.progress = this.add.rectangle(440, 32, 0, 14, 0x2a9d8f).setOrigin(0, 0.5).setDepth(10);
@@ -387,6 +414,63 @@ export class GameScene extends Phaser.Scene {
     body.setOffset((obj.width - bodyW) / 2, (obj.height - bodyH) / 2);
   }
 
+  /**
+   * 左上 HUD 版面（批次 7）。
+   * 尺寸相對舊版 24px 文字放大 3 倍：字級 72px、愛心 3 倍、間距與內距同步放大。
+   * 橫向空間不足時改成上下兩行，字級與愛心大小不縮。
+   * 安全邊距：左 36 / 上 28；右側預留進度條與暫停鈕的橫向距離。
+   */
+  private layoutHud(s: { hp: number; maxHp: number; score: number }): void {
+    const FONT = 72;              // 24px × 3
+    const HEART = 66;             // 愛心字形尺寸（3 倍視覺）
+    const PAD_X = 30;
+    const PAD_Y = 20;
+    const GAP = 26;               // 愛心與分數之間距
+    const SAFE_L = 36;
+    const SAFE_T = 24;
+    // 分數若與進度條（x=440）或暫停鈕（右緣 1180）同高會撞在一起，故限制可用寬度
+    const AVAIL_RIGHT = 400;
+
+    // 實心與空心各自成串，再並排：實心 ♥ 用純紅填色（無描邊），空心 ♡ 用淺灰白＋深藍細框
+    const on = Math.max(0, Math.min(s.hp, s.maxHp));
+    const off = Math.max(0, s.maxHp - on);
+    this.hudText.setText(Array(on).fill('♥').join(' ')).setFontSize(FONT);
+    this.hudHeartsEmpty.setText(Array(off).fill('♡').join(' ')).setFontSize(FONT);
+    this.hudScore.setText(`分數 ${s.score}`);
+    this.hudScore.setFontSize(FONT);
+    this.hudScore.setStroke('#102A3A', Math.round(FONT / 12));
+
+    const heartW = Math.max(1, this.hudText.width + (off > 0 && on > 0 ? 8 : 0) + this.hudHeartsEmpty.width);
+    const scoreW = Math.max(1, this.hudScore.width);
+    const hH = Math.max(HEART, this.hudText.height, this.hudHeartsEmpty.height);
+    const sH = this.hudScore.height;
+
+    const oneLineW = heartW + GAP + scoreW;
+    const stacked = oneLineW > AVAIL_RIGHT;
+    const plateW = stacked
+      ? SAFE_L + 0 + Math.max(heartW, scoreW) + PAD_X * 2
+      : SAFE_L + 0 + oneLineW + PAD_X * 2;
+    const plateH = stacked ? hH + sH + GAP + PAD_Y * 2 : Math.max(hH, sH) + PAD_Y * 2;
+
+    const x0 = SAFE_L;
+    const y0 = SAFE_T;
+    this.hudPlate.clear();
+    this.hudPlate.fillStyle(0x102a3a, 0.55);
+    this.hudPlate.fillRoundedRect(x0, y0, plateW - SAFE_L + PAD_X, plateH, 18);
+
+    const left = x0 + PAD_X;
+    if (stacked) {
+      this.hudText.setPosition(left, y0 + PAD_Y + hH / 2);
+      this.hudHeartsEmpty.setPosition(left + this.hudText.width + (on > 0 ? 8 : 0), y0 + PAD_Y + hH / 2);
+      this.hudScore.setPosition(left, y0 + PAD_Y + hH + GAP + sH / 2);
+    } else {
+      const midY = y0 + PAD_Y + Math.max(hH, sH) / 2;
+      this.hudText.setPosition(left, midY);
+      this.hudHeartsEmpty.setPosition(left + this.hudText.width + (on > 0 ? 8 : 0), midY);
+      this.hudScore.setPosition(left + heartW + GAP, midY);
+    }
+  }
+
   private fireBullet(): void {
     // 以「彈體左緣」貼齊機首右緣 + 4px 間隙。
     // 注意 displayWidth 是寬度的兩倍（sprite 的 width/height 存半值、scaleX=2 抵銷），
@@ -654,8 +738,7 @@ export class GameScene extends Phaser.Scene {
 
   private updateHud(): void {
     const s = this.run.snapshot();
-    const hearts = '♥'.repeat(Math.max(0, s.hp)) + '♡'.repeat(Math.max(0, s.maxHp - s.hp));
-    this.hudText.setText(`${hearts}   分數 ${s.score}`);
+    this.layoutHud(s);
     const p = Phaser.Math.Clamp(s.elapsedMs / this.level.durationMs, 0, 1);
     this.progress.width = 400 * p;
   }

@@ -9,7 +9,7 @@ import { WarnQuota } from '../systems/warn-quota';
 import { InputController } from '../systems/input';
 import { RunState } from '../systems/runstate';
 import { DEFAULT_LEVEL, LEVELS, type LevelConfig, type LevelId } from '../systems/waves';
-import { TEX, texFor, buildPlaceholders } from '../data/placeholder';
+import { TEX, VISUAL, texFor, buildPlaceholders } from '../data/placeholder';
 
 type EnemySprite = EnemyBody;
 
@@ -71,15 +71,15 @@ export class GameScene extends Phaser.Scene {
 
     const playerTex = this.textures.exists('art-player') ? 'art-player' : TEX.player;
     this.player = this.physics.add.sprite(180, 360, playerTex);
-    this.player.body!.setSize(BALANCE.player.bodyW, BALANCE.player.bodyH);
+    this.applyCenteredBody(this.player, BALANCE.player.bodyW, BALANCE.player.bodyH);
     this.player.setCollideWorldBounds(true);
     this.physics.world.setBounds(60, 90, 1160, 540);
 
     buildPlaceholders(this, [
-      { kindId: 'aflatoxin', w: 72, h: 72 },
-      { kindId: 'sulfur_dioxide_excess', w: 88, h: 64 },
-      { kindId: 'salmonella', w: 96, h: 48 },
-      { kindId: 's_aureus', w: 80, h: 80 },
+      { kindId: 'aflatoxin', w: VISUAL.aflatoxin.w, h: VISUAL.aflatoxin.h },
+      { kindId: 'sulfur_dioxide_excess', w: VISUAL.sulfur_dioxide_excess.w, h: VISUAL.sulfur_dioxide_excess.h },
+      { kindId: 'salmonella', w: VISUAL.salmonella.w, h: VISUAL.salmonella.h },
+      { kindId: 's_aureus', w: VISUAL.s_aureus.w, h: VISUAL.s_aureus.h },
     ]);
 
     this.bullets = this.physics.add.group({ maxSize: BALANCE.caps.playerBullets });
@@ -358,8 +358,30 @@ export class GameScene extends Phaser.Scene {
     this.updateHud();
   }
 
+  /**
+   * 設定碰撞體並「置中對齊」顯示框。
+   * 角色外觀放大時，紋理尺寸變大但碰撞體維持原世界尺寸，
+   * 因此 offset = (顯示寬 - 碰撞寬) / 2，避免碰撞框偏向一角。
+   */
+  private applyCenteredBody(
+    obj: Phaser.Physics.Arcade.Sprite,
+    bodyW: number,
+    bodyH: number,
+  ): void {
+    const body = obj.body as Phaser.Physics.Arcade.Body;
+    body.setSize(bodyW, bodyH);
+    // 注意：Arcade Body 的 offset 以「紋理原始像素」為單位，會再乘上 sprite scale。
+    // 角色紋理已是目標尺寸且 scale=1，因此直接用 width/height 置中，
+    // 不用 displayWidth（那等於 width×scale，換算後會偏掉）。
+    body.setOffset((obj.width - bodyW) / 2, (obj.height - bodyH) / 2);
+  }
+
   private fireBullet(): void {
-    const b = this.bullets.get(this.player.x + 36, this.player.y) as Phaser.Physics.Arcade.Image | null;
+    // 以「彈體左緣」貼齊機首右緣 + 4px 間隙。
+    // 注意 displayWidth 是寬度的兩倍（sprite 的 width/height 存半值、scaleX=2 抵銷），
+    // 直接用會把生成點推到機身內側，因此改用左緣 + 半寬換算。
+    const playerRight = this.player.getBounds().right;
+    const b = this.bullets.get(playerRight + 4 + BALANCE.player.bulletW / 2, this.player.y) as Phaser.Physics.Arcade.Image | null;
     if (!b) return;
     b.setActive(true).setVisible(true);
     this.applyBulletTexture(b, 'art-player-bullet', TEX.playerBullet);
@@ -375,7 +397,7 @@ export class GameScene extends Phaser.Scene {
     const e = this.physics.add.sprite(def.spawnX, y, texFor(def.kindId, this)) as EnemySprite;
     // 先加入群組（群組會套用 defaults 覆寫 velocity / allowGravity），再設定個別屬性
     this.enemies.add(e);
-    e.body!.setSize(def.body.w, def.body.h);
+    this.applyCenteredBody(e, def.body.w, def.body.h);
     (e.body as Phaser.Physics.Arcade.Body).allowGravity = false;
     e.setCollideWorldBounds(false);
     e.setVelocityX(-def.speed);
@@ -415,7 +437,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private warnX(e: EnemySprite): number { return e.x; }
-  private warnY(e: EnemySprite): number { return e.y - e.def.size.h / 2 - 19; }
+  /**
+   * 警告三角位置：以敵人「實際顯示高度」為準（視覺放大後 def.size 已不等於顯示尺寸）。
+   * displayHeight 會反映紋理實際高度 × scale，因此不需另外維護一張尺寸表。
+   */
+  private warnY(e: EnemySprite): number { return e.y - e.displayHeight / 2 - 19; }
 
   private spawnEnemyProjectile(x: number, y: number, speed: number): void {
     if (this.enemyBullets.countActive(true) >= BALANCE.caps.enemyBullets) return;

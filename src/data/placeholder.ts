@@ -20,6 +20,19 @@ export function texFor(kindId: HazardKindId, scene?: Phaser.Scene): string {
   return 'tex-' + kindId;
 }
 
+/**
+ * 執行期視覺尺寸（角色放大 2 倍）。
+ * 以「原稿重新產生」→ 紋理本身已是目標尺寸，scale 恆為 1。
+ * 碰撞體另由 body.setSize + 置中 offset 設定，不受此表影響。
+ */
+export const VISUAL = {
+  player: { w: 128, h: 80 },
+  aflatoxin: { w: 144, h: 144 },
+  sulfur_dioxide_excess: { w: 176, h: 128 },
+  salmonella: { w: 192, h: 96 },
+  s_aureus: { w: 160, h: 160 },
+} as const;
+
 /** 尺寸取自敵人配置（視覺尺寸），由呼叫端傳入 */
 export interface KindVisual {
   kindId: HazardKindId;

@@ -11,6 +11,14 @@ export const BALANCE = {
     bulletW: 20,
     bulletH: 8,
   },
+  /** 角色視覺顯示尺寸（只影響外觀；碰撞體仍為 bodyW/bodyH 等原值） */
+  visual: {
+    playerW: 128, playerH: 80,
+    aflatoxinW: 144, aflatoxinH: 144,
+    sulfurW: 176, sulfurH: 128,
+    salmonellaW: 192, salmonellaH: 96,
+    sAureusW: 160, sAureusH: 160,
+  },
   caps: {
     enemies: 16,
     playerBullets: 32,

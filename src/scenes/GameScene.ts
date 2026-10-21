@@ -116,7 +116,7 @@ export class GameScene extends Phaser.Scene {
     if (prev) {
       log.__SAMPLES__.push({
         dLevel: +(cur.level - prev.level).toFixed(2),
-        dStepsWall: cur.t - prev.t,
+        dSceneTime: +(cur.t - prev.t).toFixed(2),
         dx: +(cur.x - prev.x).toFixed(3),
         vx: cur.vx,
         inp: cur.inp,
@@ -155,6 +155,11 @@ export class GameScene extends Phaser.Scene {
   override update(_time: number, delta: number): void {
     if (!this.isFighting) return;
     const dt = Math.min(delta, 50);
+    if (__DEV_HOOK__) {
+      const rl = window as unknown as { __RAW_DELTAS__?: unknown[] };
+      rl.__RAW_DELTAS__ = rl.__RAW_DELTAS__ || [];
+      if (rl.__RAW_DELTAS__.length < 800) rl.__RAW_DELTAS__.push({ raw: +delta.toFixed(2), dt: +dt.toFixed(2) });
+    }
     const __x0 = __DEV_HOOK__ ? this.player.body!.position.x : 0;
     const __inp = __DEV_HOOK__ ? this.input2.read().moveX : 0;
 

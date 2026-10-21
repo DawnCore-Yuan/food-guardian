@@ -52,12 +52,23 @@ export class MenuScene extends Phaser.Scene {
       fontFamily: '"Noto Sans TC", sans-serif', fontSize: '18px', color: '#7c9cb3',
     }).setOrigin(0.5);
 
-    // 音效開關（首頁）：符合深藍／青綠風格的小膠囊鈕
+    // 音效開關（首頁）：與「開始遊戲」同字級（40px），白色粗體置中
+    // 命中區需求 ≥48 CSS px：以 canvas 實際顯示比例回推邏輯尺寸
+    const cssScale = (this.game.canvas.getBoundingClientRect().width / this.scale.width) || 1;
+    const hitH = Math.min(150, Math.max(80, Math.ceil(48 / Math.max(0.01, cssScale)) + 10));
+    const boxW = Math.round(hitH * 2.4);
+
+    const sndPlate = this.add.graphics().setName('menu-snd');
+    const sndLabel = this.add.text(0, 0, '音效 開', {
+      fontFamily: '"Noto Sans TC", sans-serif', fontStyle: 'bold',
+      fontSize: '40px', color: '#ffffff',
+    }).setOrigin(0.5).setName('menu-snd-label');
+
     const paintSnd = (): void => {
       const on = audio.isEnabled();
       sndLabel.setText(on ? '音效 開' : '音效 關');
       sndPlate.clear();
-      const hw = Math.max(boxW, labelW + hitH * 0.9) / 2, hh = hitH / 2;
+      const hw = boxW / 2, hh = hitH / 2;
       sndPlate.fillStyle(0x16334a, on ? 0.92 : 0.6).fillRoundedRect(-hw, -hh, boxW, hitH, hitH / 2);
       sndPlate.lineStyle(2, 0x7fdffc, on ? 0.9 : 0.4).strokeRoundedRect(-hw, -hh, boxW, hitH, hitH / 2);
       if (!on) {
@@ -67,30 +78,20 @@ export class MenuScene extends Phaser.Scene {
         sndPlate.strokePath();
       }
     };
-    // 命中區需求 ≥48 CSS px：以 canvas 實際顯示比例回推邏輯尺寸
-    const cssScale = (this.game.canvas.getBoundingClientRect().width / this.scale.width) || 1;
-    const hitH = Math.min(140, Math.max(72, Math.ceil(48 / Math.max(0.01, cssScale)) + 8));
-    const boxW = hitH * 2.4;
-    const sndPlate = this.add.graphics().setName('menu-snd');
-    // 文字：目前字級的 2 倍（bold、白色、置中）；底板寬度依文字實際寬度決定
-    const baseFont = Math.round(hitH * 0.34);
-    const sndFont = baseFont * 2;
-    const sndLabel = this.add.text(0, 0, '音效 開', {
-      fontFamily: '"Noto Sans TC", sans-serif', fontStyle: 'bold',
-      fontSize: String(sndFont), color: '#ffffff',
-    }).setOrigin(0.5).setName('menu-snd-label');
-    const labelW = sndLabel.width;
-    this.add.container(width - boxW / 2 - 20, height - hitH / 2 - 40, [sndPlate, sndLabel]).setName('menu-snd-box');
-    // 命中區至少 48 CSS px：以 canvas 邏輯座標換算實際 CSS 比例
-    const hitBox = this.add.zone(width - boxW / 2 - 20, height - hitH / 2 - 40, boxW, hitH).setOrigin(0.5).setInteractive({ useHandCursor: true });
+
+    const boxX = width - boxW / 2 - 20;
+    const boxY = height - hitH / 2 - 40;
+    this.add.container(boxX, boxY, [sndPlate, sndLabel]).setName('menu-snd-box');
+
+    // 命中區（與可見底板同尺寸，手機 ≥48 CSS px）
+    const hitBox = this.add.zone(boxX, boxY, boxW, hitH).setOrigin(0.5).setInteractive({ useHandCursor: true });
     hitBox.on('pointerup', () => {
       void audio.unlock();
-      const on = !audio.isEnabled();
-      audio.setEnabled(on);
+      audio.setEnabled(!audio.isEnabled());
       audio.play('ui');
       paintSnd();
     });
-    paintSnd();
+
 
     // 版本說明：頁尾小字（原位置已移除，不重複顯示）
     // 以「底部安全邊距 + 自身高度」定位，而非固定百分比，避免手機橫向被裁切或與上一行重疊

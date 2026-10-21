@@ -25,6 +25,7 @@ export class GameScene extends Phaser.Scene {
   private warnIconOf = new Map<EnemySprite, Phaser.GameObjects.Image>();
   private reducedMotion = false;
   private touch: TouchController | null = null;
+  private orientationCleanup: (() => void) | null = null;
   private readonly behaviorHost: BehaviorHost = {
     spawnEnemyProjectile: (x, y, speed) => this.spawnEnemyProjectile(x, y, speed),
     setWarnSign: (e, visible) => this.setWarnSign(e, visible),
@@ -107,6 +108,7 @@ export class GameScene extends Phaser.Scene {
     if (isTouch) {
       this.touch = new TouchController(this, () => this.requestPause());
       this.touch.attach(this.game.canvas, true);
+      this.setupOrientationGuard();
     }
 
     // HudScene 為獨立 scene，永不暫停；等它 create 完成（hud-ready）後才啟用事件
@@ -125,10 +127,46 @@ export class GameScene extends Phaser.Scene {
     this.events.once('shutdown', () => this.cleanup());
   }
 
+  /** 直向時顯示旋轉提示；切回橫向需玩家手動按繼續 */
+  private setupOrientationGuard(): void {
+    const el = document.getElementById('ui-layer');
+    if (!el) return;
+    const hint = document.createElement('div');
+    hint.id = 'rotate-hint';
+    hint.textContent = '請將手機旋轉為橫向';
+    Object.assign(hint.style, {
+      position: 'fixed', inset: '0', display: 'none', zIndex: '9999',
+      background: 'rgba(11,43,60,0.96)', color: '#fff', fontSize: '22px',
+      alignItems: 'center', justifyContent: 'center', textAlign: 'center',
+      padding: 'env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)',
+    } as CSSStyleDeclaration);
+    el.appendChild(hint);
+
+    const apply = () => {
+      const portrait = window.innerHeight > window.innerWidth;
+      hint.style.display = portrait ? 'flex' : 'none';
+      if (portrait && this.isFighting && !this.scene.isPaused()) {
+        this.touch?.clearAll();
+        this.input2.clearAll();
+        this.player.setVelocity(0, 0);
+        this.requestPause();
+      }
+    };
+    window.addEventListener('resize', apply);
+    window.addEventListener('orientationchange', apply);
+    apply();
+    this.orientationCleanup = () => {
+      window.removeEventListener('resize', apply);
+      window.removeEventListener('orientationchange', apply);
+      hint.remove();
+    };
+  }
+
   private requestPause(): void {
     if (!this.hudReady) return;
     if (!this.isFighting) return;
     this.input2.clearAll();
+    this.touch?.clearAll();
     this.player.setVelocity(0, 0);
     this.scene.pause();
     this.scene.get('Hud').events.emit('show-pause');
@@ -207,9 +245,18 @@ export class GameScene extends Phaser.Scene {
     this.run.tick(dt);
     const kb = this.input2.read();
     const tc = this.touch?.read();
-    const inp = tc
-      ? { moveX: kb.moveX || tc.moveX, moveY: kb.moveY || tc.moveY, firing: kb.firing || tc.firing, pauseRequested: false }
-      : kb;
+    // 混合輸入優先序：有鍵盤方向輸入時以鍵盤為準，否則用觸控；射擊為 OR
+    const kbActive = kb.moveX !== 0 || kb.moveY !== 0;
+    let mx = kbActive ? kb.moveX : (tc?.moveX ?? 0);
+    let my = kbActive ? kb.moveY : (tc?.moveY ?? 0);
+    const len = Math.hypot(mx, my);
+    if (len > 1) { mx /= len; my /= len; }
+    const inp = {
+      moveX: mx,
+      moveY: my,
+      firing: kb.firing || (tc?.firing ?? false),
+      pauseRequested: false,
+    };
     if (tc && this.touch?.consumePause()) { this.requestPause(); return; }
 
     // 玩家移動（唯一由這裡設定速度；物理負責位移）
@@ -467,6 +514,7 @@ export class GameScene extends Phaser.Scene {
     if (this.run.phase !== 'won' && this.run.phase !== 'lost') return;
     // 終局：立即停止輸入與物理，避免結算後仍移動/加分
     this.input2?.clearAll();
+    this.touch?.clearAll();
     this.player.setVelocity(0, 0);
     // 剩餘敵人：結算後只銷毀，不再增加逃脫數（逃脫僅在收尾期限由 checkOutcome 計入）
     for (const obj of [...this.enemies.getChildren()]) {
@@ -502,6 +550,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private cleanup(): void {
+    this.orientationCleanup?.();
+    this.orientationCleanup = null;
     this.touch?.destroy();
     this.touch = null;
     this.sys.events.off(Phaser.Scenes.Events.POST_UPDATE, this.samplePostUpdate, this);

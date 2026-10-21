@@ -23,6 +23,8 @@ export class TouchController {
   private knob?: Phaser.GameObjects.Arc;
   private fireZone?: Phaser.GameObjects.Rectangle;
   private pauseBtn?: Phaser.GameObjects.Text;
+  private pauseBg?: Phaser.GameObjects.Rectangle;
+  private pauseBounds?: Phaser.Geom.Rectangle;
   private onInterrupt: (() => void) | null = null;
   private readonly scene: Phaser.Scene;
 
@@ -45,17 +47,30 @@ export class TouchController {
     this.scene.add.text(1050, 540, '按住射擊', {
       fontFamily: '"Noto Sans TC", sans-serif', fontSize: '20px', color: '#ffffff',
     }).setOrigin(0.5).setDepth(21).setAlpha(0.7);
-    this.pauseBtn = this.scene.add.text(1210, 60, '⏸', { fontSize: '44px', color: '#1b4965' })
+    // 暫停鈕：邏輯 96×96 → 844×390 下約 52×52 CSS px（≥48）
+    const pauseBg = this.scene.add.rectangle(1190, 70, 96, 96, 0xffffff, 0.35)
+      .setDepth(21).setStrokeStyle(2, 0xffffff, 0.6);
+    this.pauseBtn = this.scene.add.text(1190, 70, '⏸', { fontSize: '52px', color: '#1b4965' })
       .setOrigin(0.5).setDepth(22).setInteractive({ useHandCursor: true });
+    this.pauseBg = pauseBg;
+    pauseBg.setInteractive({ useHandCursor: true });
+    pauseBg.on('pointerdown', (e: Phaser.Input.Pointer) => {
+      e.event.stopPropagation();
+      this.state.pauseRequested = true;
+    });
     this.pauseBtn.on('pointerdown', (e: Phaser.Input.Pointer) => {
       e.event.stopPropagation();
       this.state.pauseRequested = true;
     });
+    // 以實際 bounds 定義排除區（暫停鈕含底盤）
+    this.pauseBounds = new Phaser.Geom.Rectangle(1190 - 48, 70 - 48, 96, 96);
 
     const down = (e: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
       const x = ((e.clientX - rect.left) / rect.width) * 1280;
       const y = ((e.clientY - rect.top) / rect.height) * 720;
+      const inPause = this.pauseBounds?.contains(x, y) ?? false;
+      if (inPause) { this.state.pauseRequested = true; return; }
       if (x > 900 && y > 360) {
         this.firePointers.add(e.pointerId);
       } else if (x < 640) {
@@ -151,6 +166,7 @@ export class TouchController {
     this.knob?.destroy();
     this.fireZone?.destroy();
     this.pauseBtn?.destroy();
+    this.pauseBg?.destroy();
     this.onInterrupt = null;
   }
 }

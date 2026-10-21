@@ -83,6 +83,9 @@ export class MenuScene extends Phaser.Scene {
     const boxY = height - hitH / 2 - 40;
     this.add.container(boxX, boxY, [sndPlate, sndLabel]).setName('menu-snd-box');
 
+    // 初始化即完整繪製一次（只讀目前偏好，不切換）
+    paintSnd();
+
     // 命中區（與可見底板同尺寸，手機 ≥48 CSS px）
     const hitBox = this.add.zone(boxX, boxY, boxW, hitH).setOrigin(0.5).setInteractive({ useHandCursor: true });
     hitBox.on('pointerup', () => {

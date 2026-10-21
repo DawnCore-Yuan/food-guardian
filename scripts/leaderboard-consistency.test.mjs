@@ -72,13 +72,43 @@ test('Edge Function 常數與波次實算一致（解析原始碼，非搜尋文
 });
 
 test('SQL CHECK 與波次實算一致（解析 migration）', () => {
-  const sql = readFileSync(`${ROOT}supabase/migrations/0003_leaderboard_v2.sql`, 'utf8');
+  const sql = readFileSync(`${ROOT}supabase/migrations/0004_leaderboard_v2_hardened.sql`, 'utf8');
   const scoreRange = sql.match(/check \(score between (\d+) and (\d+)\)/);
   const killsRange = sql.match(/check \(kills between (\d+) and (\d+)\)/);
   const wonDur = sql.match(/elapsed_ms >= (\d+)/);
   assert.equal(Number(scoreRange[2]), 12500);
   assert.equal(Number(killsRange[2]), stats.total);
   assert.equal(Number(wonDur[1]), 177000, '通關遊戲時間下限＝180 秒 − 3 秒容差');
+});
+
+test('SQL 暱稱限制：只驗非空、位元組上限、禁控制字元；不得用 \\X 或 char_length 字素近似', () => {
+  const sql = readFileSync(`${ROOT}supabase/migrations/0004_leaderboard_v2_hardened.sql`, 'utf8');
+  assert.ok(/octet_length\(nickname\) between 1 and 200/.test(sql), '應以位元組長度限制');
+  assert.ok(!/\\\\X/.test(sql), 'PostgreSQL 內建正則不支援 \\X，不得使用');
+  assert.ok(!/char_length\(nickname\)/.test(sql), '不得以 char_length 當字素計數');
+  assert.ok(/nickname !~ '\[\[:cntrl:\]\]'/.test(sql), '應禁止控制字元');
+});
+
+test('五支函式權限：REVOKE 含 PUBLIC，GRANT 只給 service_role', () => {
+  const sql = readFileSync(`${ROOT}supabase/migrations/0004_leaderboard_v2_hardened.sql`, 'utf8');
+  const revokes = [...sql.matchAll(/revoke all on function [^(]+\([^)]*\)\s+from ([^;]+);/g)].map((m) => m[1]);
+  assert.equal(revokes.length, 5);
+  for (const r of revokes) {
+    assert.ok(/public/i.test(r) && /anon/.test(r) && /authenticated/.test(r), `REVOKE 需含 public/anon/authenticated：${r}`);
+  }
+  const grants = [...sql.matchAll(/grant execute on function [^(]+\([^)]*\)\s+to ([^;]+);/g)].map((m) => m[1].trim());
+  assert.equal(grants.length, 5);
+  assert.ok(grants.every((g) => g === 'service_role'), '只授權 service_role');
+  assert.ok(/begin;/.test(sql) && /commit;/.test(sql), '建立與授權必須同一交易');
+});
+
+test('IP salt：helpers 缺鹽時回 null，start 端點回明確設定錯誤', () => {
+  const helpers = readFileSync(`${ROOT}supabase/functions/_shared/helpers.ts`, 'utf8');
+  const start = readFileSync(`${ROOT}supabase/functions/leaderboard-start/index.ts`, 'utf8');
+  assert.ok(!helpers.includes("?? 'no-salt'"), "不得以固定字串代替缺鹽");
+  assert.ok(!/encode\(raw \+ '\|' \+ '[^']+'\)/.test(helpers), "雜湊輸入不得使用硬編碼鹽");
+  assert.ok(/Promise<string \| null>/.test(helpers), 'ipHash 需可回 null 表示設定錯誤');
+  assert.ok(/not_configured/.test(start), 'start 端點需回明確設定錯誤');
 });
 
 test('文件表格的逐段生成數與實算一致', () => {

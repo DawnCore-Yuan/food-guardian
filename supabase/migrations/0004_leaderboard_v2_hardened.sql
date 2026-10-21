@@ -7,9 +7,11 @@
 --   沙門氏菌 26×200 + 黃麴毒素 14×150 + 二氧化硫 12×180 + 葡萄球菌 11×150 = 11,110
 --   通關生命獎勵 5×200 = 1,000 → 設定理論上限 12,110 → 硬上限 12,500
 --
--- 暱稱：產品規格「12 個使用者可見字元」。
---   前端以字素切分（emoji 算 1 個），資料庫以「不含控制字元的 grapheme 數」驗證，
---   不使用 char_length（char_length 會把組合 emoji 算成多個，導致前端可用、資料庫拒絕）。
+-- 暱稱：產品規格「12 個使用者可見字元」由前端與 Edge Function 以字素（grapheme）分段驗證。
+--   PostgreSQL 內建正則不支援 \X，也不安裝額外擴充，因此資料庫不做字素計數；
+--   資料庫只檢查：非空、合理儲存長度（位元組）、禁止控制字元。
+--   位元組上限 200 bytes：足以容納 12 個可見字元（含多碼位 emoji 與組合序列），
+--   同時避免超長字串。此為儲存上限，不是「12 字元」的等價換算。
 
 begin;
 
@@ -44,9 +46,7 @@ create table if not exists public.scores (
   issued_at     timestamptz not null,
   created_at    timestamptz not null default now(),
   -- 暱稱：1–12 個使用者可見字元（grapheme），且不得含控制字元
-  constraint scores_nickname_len
-    check (char_length(nickname) <= 120
-           and length(regexp_replace(nickname, '\X', 'x', 'g')) between 1 and 12),
+  constraint scores_nickname_len  check (octet_length(nickname) between 1 and 200),
   constraint scores_nickname_text  check (nickname !~ '[[:cntrl:]]'),
   constraint scores_score_range    check (score between 0 and 12500),
   constraint scores_outcome_valid  check (outcome in ('won', 'lost')),

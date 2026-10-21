@@ -26,6 +26,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     const ip = await ipHash(req);
+    if (!ip) return fail('not_configured', '伺服器尚未設定 IP 雜湊鹽（LEADERBOARD_IP_SALT），暫停核發單局識別', 503);
 
     // 限流在資料庫內以伺服器時間計數，多個函式實例共用同一份狀態
     const rl = await fetch(restUrl('rpc/leaderboard_rate_limited'), {

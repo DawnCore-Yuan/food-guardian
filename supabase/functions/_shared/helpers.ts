@@ -21,12 +21,18 @@ export function fail(code: string, message: string, status = 400): Response {
   return json({ code, message }, status);
 }
 
-/** 來源 IP 只保留雜湊，不落庫明文 */
-export async function ipHash(req: Request): Promise<string> {
+/**
+ * 來源 IP 只保留雜湊，不落庫明文。
+ * LEADERBOARD_IP_SALT 未設定時回傳 null：呼叫端必須回明確的設定錯誤，
+ * 不得用固定字串（如 'no-salt'）繼續，否則雜湊可被反推。
+ */
+export async function ipHash(req: Request): Promise<string | null> {
   const raw = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
     ?? req.headers.get('cf-connecting-ip')
     ?? 'unknown';
-  const data = new TextEncoder().encode(raw + '|' + (Deno.env.get('LEADERBOARD_IP_SALT') ?? 'no-salt'));
+  const salt = Deno.env.get('LEADERBOARD_IP_SALT') ?? '';
+  if (salt.trim().length < 16) return null; // 未設定或過短都視為設定錯誤
+  const data = new TextEncoder().encode(raw + '|' + salt);
   const digest = await crypto.subtle.digest('SHA-256', data);
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }

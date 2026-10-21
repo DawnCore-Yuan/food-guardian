@@ -16,6 +16,8 @@ export interface EnemyBody extends Phaser.Physics.Arcade.Sprite {
   elapsedMs: number;      // 進場後累計
   laneDone: number;       // 已完成的換線段數
   hasWarnSign: boolean;
+  warnStartMs: number;   // 預警開始的遊戲時間
+  actStartMs: number;    // 行為開始的遊戲時間
 }
 
 export interface BehaviorHost {
@@ -52,6 +54,7 @@ function updateWaveAccel(e: EnemyBody, _dt: number, quota: WarnQuota, host: Beha
     if (e.phaseT >= e.def.warnMs) {
       e.phase = 'acting';
       e.phaseT = 0;
+      e.actStartMs = e.elapsedMs;
       host.setWarnSign(e, false);
       e.hasWarnSign = false;
     }
@@ -79,6 +82,7 @@ function updateWaveAccel(e: EnemyBody, _dt: number, quota: WarnQuota, host: Beha
     if (quota.tryAcquire(e.uid)) {
       e.phase = 'warning';
       e.phaseT = 0;
+      e.warnStartMs = e.elapsedMs;
       host.setWarnSign(e, true);
       e.hasWarnSign = true;
     } else {
@@ -88,6 +92,7 @@ function updateWaveAccel(e: EnemyBody, _dt: number, quota: WarnQuota, host: Beha
   if (e.phase === 'waiting' && quota.tryAcquire(e.uid)) {
     e.phase = 'warning';
     e.phaseT = 0;
+    e.warnStartMs = e.elapsedMs;
     host.setWarnSign(e, true);
     e.hasWarnSign = true;
   }
@@ -100,6 +105,7 @@ function updateSlowShooter(e: EnemyBody, _dt: number, quota: WarnQuota, host: Be
 
   if (e.phase === 'warning') {
     if (e.phaseT >= e.def.warnMs) {
+      e.actStartMs = e.elapsedMs;
       host.spawnEnemyProjectile(e.x - 30, e.y, e.def.params?.projectileSpeed ?? 260);
       host.setWarnSign(e, false);
       e.hasWarnSign = false;
@@ -116,6 +122,7 @@ function updateSlowShooter(e: EnemyBody, _dt: number, quota: WarnQuota, host: Be
     if (quota.tryAcquire(e.uid)) {
       e.phase = 'warning';
       e.phaseT = 0;
+      e.warnStartMs = e.elapsedMs;
       host.setWarnSign(e, true);
       e.hasWarnSign = true;
     } else {
@@ -125,6 +132,7 @@ function updateSlowShooter(e: EnemyBody, _dt: number, quota: WarnQuota, host: Be
   if (e.phase === 'waiting' && quota.tryAcquire(e.uid)) {
     e.phase = 'warning';
     e.phaseT = 0;
+    e.warnStartMs = e.elapsedMs;
     host.setWarnSign(e, true);
     e.hasWarnSign = true;
   }
@@ -156,6 +164,7 @@ function updateLaneShift(e: EnemyBody, _dt: number, quota: WarnQuota, host: Beha
     if (e.phaseT >= e.def.warnMs) {
       e.phase = 'acting';
       e.phaseT = 0;
+      e.actStartMs = e.elapsedMs;
       host.setWarnSign(e, false);
       e.hasWarnSign = false;
       // 交錯上下換線
@@ -196,6 +205,7 @@ function updateLaneShift(e: EnemyBody, _dt: number, quota: WarnQuota, host: Beha
     if (quota.tryAcquire(e.uid)) {
       e.phase = 'warning';
       e.phaseT = 0;
+      e.warnStartMs = e.elapsedMs;
       host.setWarnSign(e, true);
       e.hasWarnSign = true;
     } else {
@@ -205,6 +215,7 @@ function updateLaneShift(e: EnemyBody, _dt: number, quota: WarnQuota, host: Beha
   if (e.phase === 'waiting' && quota.tryAcquire(e.uid)) {
     e.phase = 'warning';
     e.phaseT = 0;
+    e.warnStartMs = e.elapsedMs;
     host.setWarnSign(e, true);
     e.hasWarnSign = true;
   }

@@ -26,6 +26,7 @@ export class WarnQuota {
   get inUse(): number { return this.holders.size; }
   get capacity(): number { return this.max; }
   holdersList(): string[] { return [...this.holders.keys()]; }
+  acquiredAt(owner: string): number | undefined { return this.holders.get(owner); }
   drainLog(): WarnRecord[] { const l = this.log; this.log = []; return l; }
 
   private record(action: WarnRecord['action'], owner: string): void {

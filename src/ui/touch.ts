@@ -16,9 +16,10 @@ export class TouchController {
   private readonly movePointers = new Map<number, { x: number; y: number }>();
   private readonly firePointers = new Set<number>();
   private readonly cleanups: Array<() => void> = [];
-  private readonly baseX: number;
-  private readonly baseY: number;
   private readonly radius = 80;
+  private readonly deadZone = 12;
+  /** 浮動搖桿中心：按下時決定，放開清空 */
+  private origin: { id: number; x: number; y: number } | null = null;
   private stick?: Phaser.GameObjects.Arc;
   private knob?: Phaser.GameObjects.Arc;
   private fireZone?: Phaser.GameObjects.Rectangle;
@@ -31,17 +32,15 @@ export class TouchController {
   constructor(scene: Phaser.Scene, onInterrupt: () => void) {
     this.scene = scene;
     this.onInterrupt = onInterrupt;
-    this.baseX = 150;
-    this.baseY = 560;
   }
 
   /** 只在觸控裝置顯示；桌面不佔畫面 */
   attach(canvas: HTMLCanvasElement, enabled: boolean): void {
     if (!enabled) return;
 
-    this.stick = this.scene.add.circle(this.baseX, this.baseY, this.radius, 0xffffff, 0.18)
-      .setDepth(20).setStrokeStyle(2, 0xffffff, 0.5);
-    this.knob = this.scene.add.circle(this.baseX, this.baseY, 32, 0x2a9d8f, 0.75).setDepth(21);
+    this.stick = this.scene.add.circle(0, 0, this.radius, 0xffffff, 0.18)
+      .setDepth(20).setStrokeStyle(2, 0xffffff, 0.5).setVisible(false);
+    this.knob = this.scene.add.circle(0, 0, 32, 0x2a9d8f, 0.75).setDepth(21).setVisible(false);
     this.fireZone = this.scene.add.rectangle(1050, 540, 380, 340, 0xffffff, 0.08)
       .setDepth(20).setStrokeStyle(1, 0xffffff, 0.25);
     this.scene.add.text(1050, 540, '按住射擊', {
@@ -73,9 +72,13 @@ export class TouchController {
       if (inPause) { this.state.pauseRequested = true; return; }
       if (x > 900 && y > 360) {
         this.firePointers.add(e.pointerId);
-      } else if (x < 640) {
+      } else if (x < 640 && this.origin === null) {
+        // 浮動搖桿：以首次按下的位置作為中心
+        this.origin = { id: e.pointerId, x, y };
         this.movePointers.set(e.pointerId, { x, y });
-        this.updateKnob();
+        this.stick?.setPosition(x, y).setVisible(true);
+        this.knob?.setPosition(x, y).setVisible(true);
+        canvas.setPointerCapture?.(e.pointerId);
       }
     };
     const move = (e: PointerEvent) => {
@@ -89,7 +92,11 @@ export class TouchController {
     const up = (e: PointerEvent) => {
       this.movePointers.delete(e.pointerId);
       this.firePointers.delete(e.pointerId);
-      this.updateKnob();
+      if (this.origin && this.origin.id === e.pointerId) {
+        this.origin = null;
+        this.stick?.setVisible(false);
+        this.knob?.setVisible(false);
+      }
     };
     const cancel = (e: PointerEvent) => {
       this.movePointers.delete(e.pointerId);
@@ -117,23 +124,29 @@ export class TouchController {
   }
 
   private updateKnob(): void {
-    if (!this.knob) return;
+    if (!this.knob || !this.origin) return;
     const p = [...this.movePointers.values()][0];
-    if (!p) { this.knob.setPosition(this.baseX, this.baseY); return; }
-    const dx = p.x - this.baseX;
-    const dy = p.y - this.baseY;
+    if (!p) { this.knob.setPosition(this.origin.x, this.origin.y); return; }
+    const dx = p.x - this.origin.x;
+    const dy = p.y - this.origin.y;
     const len = Math.hypot(dx, dy) || 1;
     const k = Math.min(1, this.radius / len);
-    this.knob.setPosition(this.baseX + dx * k, this.baseY + dy * k);
+    this.knob.setPosition(this.origin.x + dx * k, this.origin.y + dy * k);
   }
 
   read(): TouchState {
     let x = 0;
     let y = 0;
-    if (this.movePointers.size > 0) {
-      const p = [...this.movePointers.values()][0];
-      x = Phaser.Math.Clamp((p.x - this.baseX) / this.radius, -1, 1);
-      y = Phaser.Math.Clamp((p.y - this.baseY) / this.radius, -1, 1);
+    if (this.origin && this.movePointers.size > 0) {
+      const p = this.movePointers.get(this.origin.id) ?? [...this.movePointers.values()][0];
+      let dx = p.x - this.origin.x;
+      let dy = p.y - this.origin.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > this.deadZone) {
+        const scale = Math.min(1, (dist - this.deadZone) / (this.radius - this.deadZone));
+        x = (dx / dist) * scale;
+        y = (dy / dist) * scale;
+      }
     }
     const len = Math.hypot(x, y);
     if (len > 1) { x /= len; y /= len; }
@@ -150,6 +163,9 @@ export class TouchController {
   }
 
   clearAll(): void {
+    this.origin = null;
+    this.stick?.setVisible(false);
+    this.knob?.setVisible(false);
     this.movePointers.clear();
     this.firePointers.clear();
     this.state.moveX = 0;

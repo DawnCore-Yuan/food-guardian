@@ -106,28 +106,54 @@
 
 ## 4. 觸控
 
-| 項目 | 結果 | 狀態 |
-|---|---|---|
-| 觸控 context 能力 | `hasTouch: true`、`maxTouchPoints` 可調至 5 | ✅ |
-| 雙指同時：移動 ＋ 射擊 | `moveX -0.38`、`firing true`、子彈生成 | ✅ |
-| 合速度不超速 | `hypot(260,149) = 300` | ✅ |
-| 全部放開後停止 | `vx 0`、`vy 0`、`firing false` | ✅ |
-| **合成** 移動指釋放 | 移動停、射擊續（`bullets 2→3`） | ✅（合成，非實機） |
-| **合成** 射擊指釋放 | 射擊停、移動續（x 遞減） | ✅（合成，非實機） |
-| 暫停鈕中心 (1190,70) | 暫停 | ✅ |
-| 暫停鈕邊緣 (1144,116) | 暫停 | ✅ |
-| 暫停鈕 CSS 尺寸 | 96 邏輯 → **52 CSS px**（844×390） | ✅ |
-| `touchCancel` | 輸入清空、`paused: true`、`vx 0` | ✅ |
-| 直向提示 | `display: flex`、「請將手機旋轉為橫向」 | ✅ |
-| 直向時清輸入並暫停 | `mx 0`、`firing false`、`vx 0` | ✅ |
-| 回橫向仍暫停 | `display: none`、`paused: true` | ✅ |
-| 回橫向後真實點擊繼續 | `gameActive true`、無殘留輸入、可移動（x 210→216） | ✅ |
-| **實機單指釋放** | — | **NOT TESTED** |
+### 4.1 浮動搖桿（最終設計）
 
-**合成事件說明**：單指釋放使用頁面內 `PointerEvent`（帶實際記錄的 `pointerId`），非瀏覽器完整觸控堆疊。實機行為仍需 iPhone 驗證。
+| 項目 | 規則 |
+|---|---|
+| 建立 | 左側（x < 640）任意位置按下，以該點為中心 |
+| 死區 | 12 邏輯像素 |
+| 最大位移 | 半徑 80，超出封頂 |
+| 正規化 | `(dist − dead) / (radius − dead)`，上限 1 |
+| 越界追蹤 | `setPointerCapture`，拖出左半區仍追蹤 |
+| 擁有者 | 僅第一根移動指；其他手指不搶中心 |
+| 釋放 | 立即停止、搖桿隱藏，下次在新位置重建 |
+
+### 4.2 驗證結果
+
+| 項目 | 結果 | 類型 |
+|---|---|---|
+| 初始搖桿隱藏 | `stickVisible: false`、`origin: null` | 瀏覽器 |
+| 不同起點（150,300／420,200／260,520） | 各自建立中心、`my: -0.71` | 瀏覽器 |
+| 越界仍追蹤（拖到 x=700） | `mx` 維持 1、持續位移、`fire: false` | 瀏覽器 |
+| 雙指同時移動＋射擊 | `mx: 1`、`fire: true`、合速度 300 | 瀏覽器 |
+| 第二根移動指不搶中心 | `origin.id` 仍為第一根 | 瀏覽器 |
+| 移動指釋放、射擊持續 | `origin: null`、`fire: true` | **合成 PointerEvent** |
+| 射擊指釋放、移動持續（mx=1） | `fire: false`、x 226→286→366 | **合成 PointerEvent** |
+| 暫停鈕不啟動搖桿 | `origin: null`、遊戲暫停 | 瀏覽器 |
+| 結算面板「再玩一次」不啟動搖桿 | `origin: null`、`mx: 0`、`fire: false` | 瀏覽器 |
+
+### 4.3 清理路徑
+
+| 路徑 | 觸發前 | 觸發後 | 結果 |
+|---|---|---|---|
+| 暫停 | `origin:3`、`mx:1`、`fire:true`、`vis:true` | `origin:null`、`mx:0`、`fire:false`、`vis:false` | ✅ |
+| `touchCancel`（活動中） | 同上 | 同上＋`gameActive:false` | ✅ |
+| 轉直向 | `origin:6`、`mx:1`、`fire:true` | `origin:null`、`mx:0`、`fire:false` | ✅ |
+| 失焦 | `origin:3`、`mx:1`、`fire:true` | `origin:null`、`mx:0`、`fire:false` | ✅ |
+| 結算（won） | `origin:3`、`mx:1`、`fire:true`、`phase:playing` | `origin:null`、`mx:0`、`fire:false`、`phase:won` | ✅ |
+
+**結算清理**：關卡常數 `official-180s`（180,000ms ＋ 10,000ms 收尾），由 `elapsedMs = durationMs − 40` 跨過邊界觸發 `won`，結算時輸入歸零、搖桿隱藏。
+
+### 4.4 未驗證
+
+| 項目 | 狀態 |
+|---|---|
+| 實機單指釋放 | **NOT TESTED** |
+| 實機觸控手感 | **NOT TESTED** |
+
+**合成事件說明**：單指釋放使用頁面內 `PointerEvent`（帶實際記錄的 `pointerId`），非瀏覽器完整觸控堆疊。
 
 ---
-
 ## 5. 降低動態
 
 | 項目 | 數值 | 狀態 |

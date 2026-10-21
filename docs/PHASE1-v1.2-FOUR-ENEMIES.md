@@ -1,0 +1,408 @@
+# 食安防衛隊 — Phase 1 四敵人設計（v1.2-draft-2）
+
+- 建立：2026-10-21
+- 狀態：**設計版，已保存**；不代表核准 C 實作，不改動 B 版本程式
+- 基底：`docs/SPEC-v1.1-draft-4.md`（三敵人版）
+- 標記：**已確認**／**初始調校值**（後續依驗證調整並記錄，不逐值詢問）／**待查證**
+
+## 0. 版本差異（draft-1 → draft-2）
+
+| # | 項目 | 變更 |
+|---|---|---|
+| 1 | 四敵人行為方向 | **已確認採用**（波浪加速／慢速直線彈／直線高耐久／階梯換線） |
+| 2 | 固定 ID | `aflatoxin`、`sulfur_dioxide_excess`、`salmonella`、`s_aureus` |
+| 3 | 黃麴毒素造型 | 改為**毒素晶核＋不規則霧環**，不用孢子造型 |
+| 4 | 可玩性論證 | **撤回**「540 減四隻高度」的加總推論 |
+| 5 | 預警超過 3 個 | 補明處理機制 |
+| 6 | 驗收命名 | 葡萄球菌「換線」與黃麴毒素「短時加速」分開 |
+| 7 | 美術 | 改為可交給 ChatGPT 生成的**製作規格**（本次無素材檔） |
+
+## 1. 已確認決策
+
+| # | 項目 |
+|---|---|
+| 1 | 四種敵人：黃麴毒素、二氧化硫超標、沙門氏菌、金黃色葡萄球菌 |
+| 2 | 主角：巡檢飛行載具 |
+| 3 | Boss 延後 Phase 2 |
+| 4 | 不增加首批種類 |
+| 5 | 不加入分裂、召喚、追蹤彈 |
+| 6 | 戰鬥強度為遊戲設定，不代表毒性排名 |
+| 7 | 一般／精英／Boss 共用食安種類 ID |
+| 8 | **行為方向採用**：黃麴毒素波浪＋預警後短暫加速；二氧化硫超標慢速＋預警後直線彈；沙門氏菌直線推進＋較高耐久；金黃色葡萄球菌階梯換線 |
+| 9 | 生命、速度、分數、尺寸、容量均為**初始調校值**，後續依驗證調整並記錄 |
+
+## 2. 固定 ID 與顯示名稱分離
+
+| kindId（固定） | 顯示名稱 | 敵對情境 |
+|---|---|---|
+| `aflatoxin` | 黃麴毒素 | — |
+| `sulfur_dioxide_excess` | 二氧化硫超標 | **必須保留「超標」** |
+| `salmonella` | 沙門氏菌 | — |
+| `s_aureus` | 金黃色葡萄球菌 | — |
+
+**規則**：`kindId` 一經定案不得更名；顯示名稱可調整（例如加簡稱），兩者分離儲存。
+
+## 3. 四敵人設計表（行為方向已確認；數值為初始調校值）
+
+| 項目 | 黃麴毒素 | 二氧化硫超標 | 沙門氏菌 | 金黃色葡萄球菌 |
+|---|---|---|---|---|
+| kindId | `aflatoxin` | `sulfur_dioxide_excess` | `salmonella` | `s_aureus` |
+| 危害分類 | 化學性（天然毒） | 化學性（添加物超標） | 生物性 | 生物性 |
+| 造型輪廓 | **毒素晶核＋不規則霧環** | 霧狀氣團＋結晶稜角 | **長桿**＋鞭毛尾 | **葡萄串狀群落** |
+| 移動 | 波浪（正弦） | 慢速直線 | 直線推進 | 階梯換線 |
+| 速度（px/s） | 110 | 55 | 130 | 95（換線段 150） |
+| 生命 | 3 | 4 | **5** | 3 |
+| 擊破分 | 150 | 180 | 200 | 150 |
+| 預警 | 0.6s（加速前） | 0.6s（射擊前） | 無 | 0.6s（換線前） |
+| 攻擊 | 短時加速 1.2s | 直線彈 1 發 | 無 | 無 |
+| 視覺尺寸 | 72×72 | 88×64 | 96×48 | 80×80 |
+| 碰撞體 | 56×56 | 68×50 | 78×38 | 64×64 |
+
+**造型修正說明**：黃麴毒素為**毒素角色**，若用孢子造型會被誤認為黴菌本體。改採「毒素晶核＋不規則霧環」，霧環明示為抽象遊戲象徵，不代表實物外觀。
+
+### 3.1 行為細節
+
+**黃麴毒素 — 波浪＋短時加速**
+
+- 基礎：正弦波浪，振幅 40px、週期 2.2s，同時 110px/s 向左
+- 預警 0.6s：霧環收束、晶核發亮
+- 加速 1.2s：水平 110 → 220px/s，波浪暫停
+- 冷卻 3.5s 後才可能再次加速
+
+**二氧化硫超標 — 慢速＋直線彈**
+
+- 基礎：55px/s 直線向左，霧團上下浮動 12px
+- 預警 0.6s：結晶稜角閃爍、霧氣收束
+- 發射 1 發直線彈（260px/s，向左，**不追蹤**）
+- 冷卻 3s
+
+**沙門氏菌 — 直線＋較高耐久**
+
+- 130px/s 直線向左，鞭毛擺動（純視覺）
+- 無預警、無攻擊；生命 5，需 5 發
+
+**金黃色葡萄球菌 — 階梯換線**
+
+- 進場後 X≈1000 開始換線
+- 每段：0.6s 預警 → 垂直移動 80–120px（150px/s）→ 停留 0.4s
+- 共 3 段後恢復 95px/s 直線向左
+- 換線期間水平速度為 0
+
+### 3.2 「短時加速」與「換線」是不同機制（驗收分開命名）
+
+| 機制 | 敵人 | 驗收項目名稱 |
+|---|---|---|
+| 短時加速 | 黃麴毒素 | `aflatoxin-accel`：水平速度短暫提升，軌跡仍在原線 |
+| 階梯換線 | 金黃色葡萄球菌 | `s_aureus-lane-shift`：垂直位移到新軌道，水平暫停 |
+
+**不可合併成一項驗收。** 前者驗「速度提升與回復」，後者驗「垂直換道與水平暫停」。
+
+## 4. 可玩性判斷（修正）
+
+### 4.1 撤回的論證
+
+draft-1 曾寫「可玩區 540px 減去四隻高度 256px ＝ 剩 284px 可閃避」。**此論證已撤回。**
+
+原因：
+
+- 面積或高度加總**不能**證明可閃避
+- 敵人出場位置、軌跡（波浪／階梯）、碰撞體、彈道、時序都會影響
+- 兩隻敵人的垂直區間可能重疊，也可能留出比「總高度差」更大或更小的空隙
+
+### 4.2 正確的判斷方式（C 階段執行）
+
+| # | 檢查 | 方法 |
+|---|---|---|
+| 1 | 出場位置分布 | 逐一列出各波次的 Y 座標，檢查是否刻意填滿 |
+| 2 | 軌跡佔用 | 波浪（±40px）、階梯（3 段 × 80–120px）造成的垂直掃描範圍 |
+| 3 | 碰撞體實際寬度 | 用 body 尺寸而非視覺尺寸 |
+| 4 | 彈道 | 二氧化硫直線彈的速度與發射點，是否有可通過的縫隙 |
+| 5 | 時序 | 預警與攻擊是否疊在同一時間窗 |
+| 6 | 實測 | 以固定輸入腳本嘗試通過，記錄是否可行（不靠估算） |
+
+**在 C 階段完成前，不宣稱「一定能躲」或「一定躲不過」。**
+
+### 4.3 同時預警超過 3 個的處理（補明）
+
+| 情況 | 處理 |
+|---|---|
+| 已有 3 個預警進行中 | 第 4 個**延後整個攻擊／換線行為** |
+| 延後期間 | 維持正常安全移動（直線或波浪照常），**不省略預警直接發動** |
+| 取得預警名額後 | 才開始**完整 0.6s 預警**，不可縮短 |
+| 排隊上限 | 待取得名額的行為**最多保留 1 個**，不無限堆積 |
+| 期間離場 | 若敵人在等待期間離場，該次攻擊作廢，不補發 |
+
+**明確禁止**：
+
+- 省略預警直接攻擊
+- 多個攻擊無限排隊後一次爆發
+- 用提高同屏上限來繞過預警名額
+
+## 5. 美術製作規格（本次無素材檔，交由 ChatGPT 生成）
+
+> **誠實聲明**：本次**沒有產生任何圖片素材**。我沒有可用的繪圖輸出能力，只能交付規格。
+> 下方為可直接貼給 ChatGPT（或任何圖像生成工具）的提示詞與驗收要點，**不是美術稿本身**。
+
+### 5.1 圖 A：主角＋四敵人並排設定稿
+
+**用途**：角色比例與辨識度對照表
+
+**畫布**：16:9，2048×1152，白底，無背景裝飾
+
+**提示詞（可直接使用）**
+
+```
+Flat vector cartoon infographic, 16:9, clean white background, soft pastel palette,
+five characters in a single horizontal row, equal spacing, each with a thin label line below.
+
+1) HERO — inspection hover vehicle: rounded rectangle body 64:40 ratio, teal #2a9d8f,
+   two small side thrusters with pale cyan flames, a simple visor slit, friendly toy-like shape.
+2) AFLATOXIN — abstract toxin entity (NOT mold, NOT spores): a small glowing amber
+   crystal core (#c9a227) wrapped in an irregular translucent haze ring, faint spiral glyph
+   on the core. Must read as a symbolic 'toxin' actor, not a fungus organism.
+3) SULFUR DIOXIDE EXCESS — drifting pale blue-grey mist blob (#c3d4e0) with three sharp
+   angular crystal facets embedded, faint triangular glyph. Reads as gas + crystals.
+4) SALMONELLA — long rod-shaped bacterium, coral red (#e07a5f), rounded ends, a wavy
+   flagellum tail on the right side, simple rod glyph. Clearly elongated, 2:1 width:height.
+5) STAPHYLOCOCCUS AUREUS — cluster of three to four golden spheres (#e8b23a) joined
+   like a tiny bunch of grapes, sequential glow, cluster glyph. Clearly round-cluster.
+
+Proportions (relative heights in the image): hero 40, aflatoxin 72, sulfite 64,
+salmonella 48, staph 80. No text baked into character art; labels are separate.
+No gore, no realistic microbes, friendly educational game art style, thick soft outlines.
+```
+
+**驗收要點**
+
+| # | 檢查 |
+|---|---|
+| 1 | 五角色輪廓互異：圓角矩形／晶核霧環／霧團稜角／長桿／球串 |
+| 2 | 黃麴毒素**不**呈現孢子或黴菌菌絲 |
+| 3 | 沙門氏菌明顯比葡萄球菌「長」，不是圓形 |
+| 4 | 葡萄球菌明顯是「多球串」，不是單一圓 |
+| 5 | 圖片內無中文文字（文字由介面渲染） |
+| 6 | 轉成灰階後仍可憑輪廓區分四者 |
+
+### 5.2 圖 B：16:9 橫向射擊構圖
+
+**用途**：辨識度與視覺密度參考
+
+**畫布**：1920×1080（或 1280×720）
+
+**提示詞**
+
+```
+Side-scrolling shooter mockup, 16:9, cartoon educational style, soft blue-grey
+factory-background silhouettes (conveyor lines, pipes) heavily blurred and low-contrast
+so gameplay reads clearly. Playfield occupies the middle band; top-left HUD hearts and
+score, top-center thin progress bar, top-right pause icon.
+
+Player: small teal hover vehicle at left-center, firing a short trail of small yellow
+energy bolts to the right.
+
+Enemies from right, spread across four vertical bands, all clearly separated:
+amber crystal-in-haze toxin at upper area, pale mist blob with crystal facets mid-upper,
+long coral rod at center, golden sphere cluster at lower area.
+One enemy shows a subtle pre-attack glow (no projectile yet).
+
+Clear dark negative space between enemy shapes so dodging lanes are visible.
+No bullets from enemies in this frame. No text in image except possible HUD icons.
+```
+
+**驗收要點**
+
+| # | 檢查 |
+|---|---|
+| 1 | 四種敵人可憑輪廓辨識，不需看顏色 |
+| 2 | 敵人名稱之間有明顯的空隙（視覺上不是密不透風） |
+| 3 | 背景對比低，不搶主體 |
+| 4 | 玩家與敵人有清楚的尺寸差 |
+
+> 此圖**僅供視覺參考**，不能作為「可閃避」的證明。可閃避性仍需 C 階段依 §4.2 實測。
+
+### 5.3 動畫需求表
+
+**通用規格**：全部 sprite sheet、透明背景、每格 128×128（置中對齊，實際角色尺寸見 §3）。
+
+| 角色 | 動畫 | 格數 | 幀率 | 需求說明 |
+|---|---|---|---|---|
+| 玩家載具 | idle | 2 | 6 fps | 推進器火焰微縮放 |
+| 玩家載具 | 受擊 | 2 | 12 fps | 整體轉為半透明白，不改輪廓 |
+| 玩家載具 | 推進 | 3 | 12 fps | 火焰放大＋尾焰延伸 |
+| 黃麴毒素 | idle | 4 | 8 fps | 霧環緩慢旋轉，晶核脈動 |
+| 黃麴毒素 | 預警 | 3 | 12 fps | 霧環收束、晶核增亮 |
+| 黃麴毒素 | 加速 | 3 | 15 fps | 霧環拉長成錐形，尾跡 |
+| 黃麴毒素 | 受擊 | 2 | 15 fps | 晶核白閃，霧環不透明化 |
+| 黃麴毒素 | 擊破 | 5 | 18 fps | 晶核碎裂、霧環擴散消散 |
+| 二氧化硫超標 | idle | 4 | 6 fps | 霧團緩慢起伏，稜角微光 |
+| 二氧化硫超標 | 預警 | 3 | 12 fps | 稜角閃爍、霧氣向中心收束 |
+| 二氧化硫超標 | 發射 | 2 | 15 fps | 稜角張開、霧團後縮 |
+| 二氧化硫超標 | 受擊 | 2 | 15 fps | 霧團白閃、短暫散開 |
+| 二氧化硫超標 | 擊破 | 5 | 18 fps | 霧團爆散、稜角飛散 |
+| 沙門氏菌 | idle | 4 | 10 fps | 鞭毛左右擺動（2 週期） |
+| 沙門氏菌 | 受擊 | 2 | 15 fps | 桿身白閃，鞭毛不停 |
+| 沙門氏菌 | 擊破 | 5 | 18 fps | 桿身斷裂成 3 段、鞭毛垂落 |
+| 金黃色葡萄球菌 | idle | 4 | 8 fps | 三球依序脈動（1→2→3 循環） |
+| 金黃色葡萄球菌 | 預警 | 3 | 12 fps | 三球同時增亮，輕微震動 |
+| 金黃色葡萄球菌 | 換線 | 3 | 15 fps | 整體輕微斜傾，朝向移動方向 |
+| 金黃色葡萄球菌 | 受擊 | 2 | 15 fps | 球體白閃 |
+| 金黃色葡萄球菌 | 擊破 | 5 | 18 fps | 三球分離、依序縮小消失 |
+
+**沙門氏菌無預警與攻擊動畫**（行為上沒有）。
+
+**共通約束**
+
+| # | 約束 |
+|---|---|
+| 1 | 預警動畫必須在 0.6s 內可辨，不得靠顏色變化單獨提示 |
+| 2 | 受擊動畫不得遮蓋輪廓（不能整片白屏） |
+| 3 | 擊破動畫不得超過 0.4s，避免阻擋視線 |
+| 4 | 所有動畫不含血腥或寫實微生物細節 |
+| 5 | 圖片內不烘焙文字 |
+
+### 5.4 交付狀態
+
+| 項目 | 狀態 |
+|---|---|
+| 圖 A 並排設定稿 | **未產生**（本文件只提供提示詞與驗收要點） |
+| 圖 B 橫向構圖 | **未產生** |
+| 動畫需求表 | ✅ 已交付（上方表格） |
+| 生成建議 | 由曉杰帶提示詞至 ChatGPT 生成，帶回後本文件補上實際圖片與驗收結果 |
+
+---
+
+## 6. 三張分離資料表
+
+### 6.1 食安種類表（`hazard-kinds.ts`）
+
+| kindId | 顯示名稱 | 危害分類 | 科普要點 | verification |
+|---|---|---|---|---|
+| `aflatoxin` | 黃麴毒素 | 化學性（天然毒） | 黴菌毒素屬天然毒；保存不當風險 | **待查證** |
+| `sulfur_dioxide_excess` | 二氧化硫超標 | 化學性（添加物） | 添加物須在准用範圍與限量內 | **待查證** |
+| `salmonella` | 沙門氏菌 | 生物性（細菌） | 常見病因；加熱與避免交叉污染 | **待查證** |
+| `s_aureus` | 金黃色葡萄球菌 | 生物性（細菌） | 產生耐熱毒素；加熱不足以去除 | **待查證** |
+
+> 全部**待查證**，未做官方來源核對；**不得進正式玩家文案**。
+
+### 6.2 敵人配置表（`enemies.ts`）
+
+| enemyId | kindId | tier | 生命 | 擊破分 | 速度 | 預警 | 攻擊 | 尺寸 | 碰撞體 |
+|---|---|---|---|---|---|---|---|---|---|
+| `aflatoxin-normal` | `aflatoxin` | normal | 3 | 150 | 110 | 0.6s | 短時加速 1.2s | 72×72 | 56×56 |
+| `sulfur_dioxide_excess-normal` | `sulfur_dioxide_excess` | normal | 4 | 180 | 55 | 0.6s | 直線彈 | 88×64 | 68×50 |
+| `salmonella-normal` | `salmonella` | normal | 5 | 200 | 130 | — | 無 | 96×48 | 78×38 |
+| `s_aureus-normal` | `s_aureus` | normal | 3 | 150 | 95 | 0.6s | 換線 3 段 | 80×80 | 64×64 |
+| `*-elite` | 同上 | elite | ×1.8 | ×1.5 | ×1.1 | 同 | 同機制、強度提高 | 同 | 同 |
+
+**擴充原則**：新增 tier 只加一列，不改 kindId、不改玩家數值。
+
+### 6.3 波次表（草案，18 群）
+
+| 群 | 觸發 | 敵人組成 |
+|---|---|---|
+| W1 | 4s | 沙門氏菌 ×2 |
+| W2 | 12s | 黃麴毒素 ×2 |
+| W3 | 22s | 沙門氏菌 ×3 |
+| W4 | 32s | 黃麴毒素 ×3 |
+| W5 | 44s | 沙門氏菌 ×2 ＋ 黃麴毒素 ×2 |
+| W6 | 54s | 沙門氏菌 ×4 |
+| W7 | 60s | 二氧化硫超標 ×1（單獨登場） |
+| W8 | 70s | 二氧化硫超標 ×2 |
+| W9 | 80s | 沙門氏菌 ×2 ＋ 黃麴毒素 ×2 |
+| W10 | 90s | 二氧化硫超標 ×2 ＋ 黃麴毒素 ×2 |
+| W11 | 100s | 沙門氏菌 ×3 ＋ 二氧化硫超標 ×2 |
+| W12 | 110s | 二氧化硫超標 ×3 |
+| W13 | 120s | 葡萄球菌 ×1（單獨登場） |
+| W14 | 130s | 葡萄球菌 ×2 ＋ 沙門氏菌 ×2 |
+| W15 | 140s | 四種各 1–2 |
+| W16 | 150s | 四種混合 |
+| W17 | 160s | 葡萄球菌 ×3 ＋ 二氧化硫超標 ×2 |
+| W18 | 168s | 四種各 2（最後一波） |
+
+實際子批數、Y 座標、間隔與敵人總數需 C 階段展開（沿用 draft-4 §7.3 事件時刻法）。
+
+### 6.4 Phase 2 Boss 資料格式（預留，不實作）
+
+```ts
+export interface BossPhaseDefinition {
+  phaseId: string;            // 'phase-1' | 'phase-2'
+  hpThresholdPct: number;     // 進入此階段的生命百分比
+  movePattern: 'hover' | 'sweep' | 'corner';
+  attackPattern: Array<{
+    type: 'projectile' | 'sweep-shot';   // 首批不做召喚
+    warnMs: number;
+    cooldownMs: number;
+  }>;
+}
+
+export interface BossDefinition {
+  enemyId: string;            // 例如 'aflatoxin-boss'
+  kindId: 'aflatoxin' | 'sulfur_dioxide_excess' | 'salmonella' | 's_aureus';
+  tier: 'boss';
+  displayName: string;
+  totalHp: number;
+  score: number;
+  size: { w: number; h: number };
+  body: { w: number; h: number };
+  phases: BossPhaseDefinition[];
+  entryAtMs: number;
+  defeatCondition: 'hp-zero' | 'timeout';
+}
+```
+
+**Phase 2 前不得使用此結構。**
+
+## 7. 三敵 → 四敵的容量與驗收調整
+
+### 7.1 同屏容量（初始調校值）
+
+| 項目 | 三敵版（draft-4） | 四敵版 | 說明 |
+|---|---|---|---|
+| 同屏敵人上限 | 16 | **16（暫不變）** | 尺寸接近，先沿用；C 階段實測不足再調 |
+| 玩家彈上限 | 32 | 32 | 不變 |
+| 敵方彈上限 | 16 | **12** | 只有二氧化硫超標會發射 |
+| 同時預警上限 | 無 | **3** | 見 §4.3 排隊規則 |
+
+### 7.2 C 階段需重算
+
+| # | 項目 | 方法 |
+|---|---|---|
+| 1 | 子批數與敵人總數 | 逐一展開 §6.3 波次表 |
+| 2 | 各段峰值 | 事件時刻法（draft-4 §7.3），含新敵人生命週期 |
+| 3 | 二氧化硫停留 | 不停止，生命週期 ≈ 1220/55 ≈ 22.2s |
+| 4 | 葡萄球菌換線耗時 | 3 ×（0.6 預警 + 0.5 移動 + 0.4 停留）≈ 4.5s |
+| 5 | 黃麴毒素加速 | 加速 1.2s 縮短在場時間，需計入 |
+| 6 | 四種同時在場可辨識 | 截圖 + 實機目視 |
+
+### 7.3 驗收項目（命名分開）
+
+| 項目 | 內容 |
+|---|---|
+| `enemy-behavior-distinct` | 四敵人移動／預警／攻擊皆不同 |
+| `aflatoxin-accel` | 黃麴毒素水平速度短暫提升並回復，軌跡不變 |
+| `s_aureus-lane-shift` | 葡萄球菌垂直換道、水平暫停 |
+| `sulfur-projectile` | 二氧化硫直線彈、不追蹤、可閃避 |
+| `salmonella-durability` | 沙門氏菌需較多發命中 |
+| `warn-cap-3` | 同屏預警不超過 3，超出時延後並保留完整預警 |
+| `four-enemy-legibility` | 四種同時在場仍可辨識（不看顏色） |
+
+---
+
+## 8. 未定案與待查證
+
+| # | 項目 | 狀態 |
+|---|---|---|
+| 1 | 全部生命／速度／分數／尺寸 | **初始調校值**，後續依驗證調整並記錄 |
+| 2 | 四種科普文案 | **待查證**，未做官方來源核對，**不進正式玩家文案** |
+| 3 | 主色配色 | 提案，需美術確認 |
+| 4 | 同屏 16 是否足夠 | 待 C 階段實測 |
+| 5 | 敵方彈 12 | 待 C 階段實測 |
+| 6 | 圖 A／圖 B | **尚未產生**，見 §5.4 |
+
+## 9. 界線
+
+- **未修改 B 版本程式**（HEAD 仍為 B 階段交付狀態）
+- **未開始 C 實作**
+- **未新增任何素材檔案**
+- 本文所有戰鬥數值不代表毒性排序
+- Git 提交僅保存設計進度，**不代表批准 C 實作**

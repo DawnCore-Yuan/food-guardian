@@ -3,6 +3,7 @@ import { BALANCE } from '../data/balance';
 import { ENEMIES, type EnemyDefinition } from '../data/enemies';
 import { HAZARD_KINDS } from '../data/hazard-kinds';
 import { isReducedMotion } from '../systems/storage';
+import { audio } from '../systems/audio';
 import { TouchController } from '../ui/touch';
 import { updateEnemy, type EnemyBody, type BehaviorHost } from '../systems/enemy-behaviors';
 import { WarnQuota } from '../systems/warn-quota';
@@ -35,6 +36,7 @@ export class GameScene extends Phaser.Scene {
   private readonly behaviorHost: BehaviorHost = {
     spawnEnemyProjectileFrom: (enemy, speed) => this.spawnEnemyProjectileFrom(enemy, speed),
     setWarnSign: (e, visible) => this.setWarnSign(e, visible),
+    playWarnSfx: () => audio.play('warn'),
   };
   private wavesInitialized = false;
   private pending: Array<{ at: number; enemyId: string; y: number }> = [];
@@ -113,6 +115,10 @@ export class GameScene extends Phaser.Scene {
       }).setOrigin(0, 1).setDepth(9).setName('kbd-hint');
     }
 
+    // 在任何使用者手勢中嘗試解鎖音訊（iOS Safari 需要）
+    const unlock = () => { void audio.unlock(); };
+    this.input.once('pointerdown', unlock);
+
     this.input2 = new InputController();
     this.input2.attach(this.game.canvas, () => this.requestPause());
 
@@ -158,6 +164,7 @@ export class GameScene extends Phaser.Scene {
     const apply = () => {
       const portrait = window.innerHeight > window.innerWidth;
       hint.style.display = portrait ? 'flex' : 'none';
+      if (portrait) audio.setSuspended(true);   // 轉直向：停止戰鬥聲
       if (portrait && this.isFighting && !this.scene.isPaused()) {
         this.touch?.clearAll();
         this.input2.clearAll();
@@ -165,12 +172,16 @@ export class GameScene extends Phaser.Scene {
         this.requestPause();
       }
     };
+    const onHide = (): void => { if (document.hidden) audio.setSuspended(true); else audio.setSuspended(false); };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('blur', () => audio.setSuspended(true));
     window.addEventListener('resize', apply);
     window.addEventListener('orientationchange', apply);
     apply();
     this.orientationCleanup = () => {
       window.removeEventListener('resize', apply);
       window.removeEventListener('orientationchange', apply);
+      document.removeEventListener('visibilitychange', onHide);
       hint.remove();
     };
   }
@@ -178,6 +189,8 @@ export class GameScene extends Phaser.Scene {
   private requestPause(): void {
     if (!this.hudReady) return;
     if (!this.isFighting) return;
+    audio.play('ui');            // 按鈕回饋（暫停）
+    audio.setSuspended(true);    // 暫停時停止戰鬥聲
     this.input2.clearAll();
     this.touch?.clearAll();
     this.player.setVelocity(0, 0);
@@ -214,6 +227,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onResume(): void {
+    audio.setSuspended(false);
     // 恢復時再清一次，避免暫停期間殘留的按鍵/指標狀態
     this.input2.clearAll();
     this.cooldownMs = Math.max(0, this.cooldownMs);
@@ -403,6 +417,7 @@ export class GameScene extends Phaser.Scene {
     (b.body as Phaser.Physics.Arcade.Body).enable = true;
     this.applyImageCenteredBody(b, BALANCE.player.bulletW, BALANCE.player.bulletH);
     b.setVelocityX(BALANCE.player.bulletSpeed);
+    audio.play('shoot');
   }
 
   private spawnEnemy(defId: string, y: number): void {
@@ -561,6 +576,7 @@ export class GameScene extends Phaser.Scene {
     const existing = this.warnIconOf.get(e);
     if (existing) { existing.setPosition(this.warnX(e), this.warnY(e)); return; }
     const img = this.add.image(this.warnX(e), this.warnY(e), TEX.warnSign).setDepth(5);
+    audio.play('warn');   // 只在「正式開始預警」時播一次；節流由 AudioManager 處理
     if (this.reducedMotion) {
       // 降低動態：固定不透明度，不做脈動或閃爍
       img.setAlpha(1);
@@ -658,7 +674,9 @@ export class GameScene extends Phaser.Scene {
     if (!b.active) return;
     b.destroy();
     if (this.invulnMs > 0) return;
+    const hpBefore = this.run.hp;
     this.run.damage(1);
+    if (this.run.hp < hpBefore) audio.play('hurt');   // 只在實際扣血成功時播
     this.invulnMs = BALANCE.player.invulnMs;
     this.player.setTint(0xff8a8a);
     this.time.delayedCall(BALANCE.player.invulnMs, () => {
@@ -675,11 +693,14 @@ export class GameScene extends Phaser.Scene {
     bullet.destroy();
     if (this.run.elapsedMs - enemy.enteredAt < 1) return;
     enemy.hp -= 1;
+    // 致命命中只播擊破聲，避免與命中聲疊在一起
+    if (enemy.hp > 0) audio.play('hit');
     const ex = enemy.x;
     const ey = enemy.y;
     if (enemy.hp <= 0) {
       enemy.settled = true;
       this.run.addKill(enemy.def.score);
+      audio.play('kill');
       if (enemy.hasWarnSign) { this.setWarnSign(enemy, false); }
       this.warnQuota.release(enemy.uid);
       enemy.destroy();
@@ -699,7 +720,9 @@ export class GameScene extends Phaser.Scene {
     enemy.settled = true;
     enemy.destroy();
     if (this.invulnMs > 0) return;
+    const hpBefore2 = this.run.hp;
     this.run.damage(1);
+    if (this.run.hp < hpBefore2) audio.play('hurt');
     this.invulnMs = BALANCE.player.invulnMs;
     this.player.setTint(0xff8a8a);
     this.time.delayedCall(BALANCE.player.invulnMs, () => {
@@ -773,6 +796,8 @@ export class GameScene extends Phaser.Scene {
     this.warnQuota.reset();
     this.physics.world.pause();
     const hpBonus = outcome === 'won' ? this.run.hp * BALANCE.score.hpBonusPerLife : 0;
+    audio.stopAll();
+    audio.play(outcome === 'won' ? 'win' : 'lose');
     this.scene.get('Hud').events.emit('finished', {
       outcome,
       score: this.run.score + hpBonus,
@@ -811,6 +836,8 @@ export class GameScene extends Phaser.Scene {
 
   /** 供 Hud 呼叫：重玩（全新 RunState，不重建 scene，避免重複監聽） */
   restartRun(): void {
+    audio.stopAll();
+    audio.setSuspended(false);
     this.physics.world.resume();
     this.scene.stop('Hud');
     this.scene.stop();
@@ -819,6 +846,8 @@ export class GameScene extends Phaser.Scene {
 
   /** 供 Hud 呼叫：真正結束本局並回到選單 */
   stopForMenu(): void {
+    audio.stopAll();
+    audio.setSuspended(false);
     this.physics.world.resume();
     this.scene.stop('Hud');
     this.scene.stop();

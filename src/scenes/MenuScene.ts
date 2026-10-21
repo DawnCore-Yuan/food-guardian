@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { loadSettings } from '../systems/storage';
+import { audio } from '../systems/audio';
 
 export class MenuScene extends Phaser.Scene {
   constructor() { super('Menu'); }
@@ -51,6 +52,32 @@ export class MenuScene extends Phaser.Scene {
       fontFamily: '"Noto Sans TC", sans-serif', fontSize: '18px', color: '#7c9cb3',
     }).setOrigin(0.5);
 
+    // 音效開關（首頁）：符合深藍／青綠風格的小膠囊鈕
+    const paintSnd = (): void => {
+      const on = audio.isEnabled();
+      sndLabel.setText(on ? '音效 開' : '音效 關');
+      sndPlate.clear();
+      sndPlate.fillStyle(0x16334a, on ? 0.92 : 0.6).fillRoundedRect(-66, -20, 132, 40, 20);
+      sndPlate.lineStyle(2, 0x7fdffc, on ? 0.9 : 0.4).strokeRoundedRect(-66, -20, 132, 40, 20);
+      if (!on) { sndPlate.lineStyle(3, 0xd9534f, 1).beginPath(); sndPlate.moveTo(-40, -12); sndPlate.lineTo(40, 12); sndPlate.strokePath(); }
+    };
+    const sndPlate = this.add.graphics().setName('menu-snd');
+    const sndLabel = this.add.text(0, 0, '', {
+      fontFamily: '"Noto Sans TC", sans-serif', fontStyle: 'bold',
+      fontSize: '20px', color: '#ffffff',
+    }).setOrigin(0.5);
+    this.add.container(width - 90, height - 100, [sndPlate, sndLabel]).setName('menu-snd-box');
+    // 命中區至少 48 CSS px：以 canvas 邏輯座標換算實際 CSS 比例
+    const hitBox = this.add.zone(width - 90, height - 100, 132, 56).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    hitBox.on('pointerup', () => {
+      void audio.unlock();
+      const on = !audio.isEnabled();
+      audio.setEnabled(on);
+      audio.play('ui');
+      paintSnd();
+    });
+    paintSnd();
+
     // 版本說明：頁尾小字（原位置已移除，不重複顯示）
     // 以「底部安全邊距 + 自身高度」定位，而非固定百分比，避免手機橫向被裁切或與上一行重疊
     const footerSize = height < 480 ? 15 : 16;
@@ -64,6 +91,10 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private startGame(): void {
+    // 必須在實際點擊中解鎖 AudioContext（iPhone Safari）
+    void audio.unlock();
+    audio.setSuspended(false);
+    audio.play('ui');
     this.scene.start('Game');
   }
 }

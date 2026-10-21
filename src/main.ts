@@ -25,6 +25,10 @@ const game = new Phaser.Game({
     default: 'arcade',
     arcade: { gravity: { x: 0, y: 0 }, debug: false },
   },
+  // 本專案音效由自建 AudioManager（src/systems/audio.ts）負責，
+  // Phaser 內建 SoundManager 若啟用會另外建立一個 AudioContext（實測計數 1→2），
+  // 因此明確關閉；不使用任何 Phaser sound API。
+  audio: { noAudio: true },
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,

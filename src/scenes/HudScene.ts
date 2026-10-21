@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { loadSettings, saveSettings } from '../systems/storage';
+import { audio } from '../systems/audio';
 import type { RunResult } from '../types';
 
 interface HudState {
@@ -48,6 +49,9 @@ export class HudScene extends Phaser.Scene {
   private timeText!: Phaser.GameObjects.Text;
   private pauseHit!: Phaser.GameObjects.Zone;
   private pauseG!: Phaser.GameObjects.Graphics;
+  private sndG!: Phaser.GameObjects.Graphics;
+  private sndHit!: Phaser.GameObjects.Zone;
+  private sndLabel!: Phaser.GameObjects.Text;
   private finishNote!: Phaser.GameObjects.Text;
 
   // 版面幾何（由 layoutBar 計算，供各元素定位）
@@ -186,6 +190,24 @@ export class HudScene extends Phaser.Scene {
     });
     bar.add(this.pauseHit);
 
+    // 音效開／關：與暫停鈕同風格的小圓鈕，放在暫停鈕左側
+    this.sndG = this.add.graphics().setName('bar-sound');
+    bar.add(this.sndG);
+    this.sndLabel = this.add.text(0, 0, '音效', {
+      fontFamily: '"Noto Sans TC", sans-serif', fontStyle: 'bold',
+      fontSize: '16px', color: C.white,
+    }).setOrigin(0.5);
+    bar.add(this.sndLabel);
+    this.sndHit = this.add.zone(0, 0, 48, 48).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    this.sndHit.on('pointerup', () => {
+      const on = !audio.isEnabled();
+      audio.unlock();
+      audio.setEnabled(on);
+      audio.play('ui');
+      this.paintSound();
+    });
+    bar.add(this.sndHit);
+
     // 收尾中提示（小字，避免 03:05 / 03:00）
     this.finishNote = this.add.text(0, 0, '收尾中', {
       fontFamily: '"Noto Sans TC", sans-serif', fontStyle: 'bold',
@@ -298,6 +320,17 @@ export class HudScene extends Phaser.Scene {
     this.timeText.setPosition(timeX, cy);
     this.geo.progY = cy;
 
+    // 音效鈕（暫停鈕左側）
+    const sndR = pauseR;
+    const sndX = pauseX - sndR * 2 - 12;
+    this.sndG.clear();
+    this.sndG.fillStyle(0x16334a, audio.isEnabled() ? 1 : 0.45).fillCircle(sndX, cy, sndR);
+    this.sndG.lineStyle(2, C.frame, audio.isEnabled() ? 0.95 : 0.4).strokeCircle(sndX, cy, sndR);
+    this.sndLabel.setPosition(sndX, cy).setAlpha(audio.isEnabled() ? 1 : 0.5);
+    const sHit = Math.max(48, sndR * 2);
+    this.sndHit.setSize(sHit, sHit);
+    this.sndHit.setPosition(sndX, cy);
+
     // 暫停鈕
     this.pauseG.clear();
     this.pauseG.fillStyle(0x16334a, 1).fillCircle(pauseX, cy, pauseR);
@@ -316,6 +349,25 @@ export class HudScene extends Phaser.Scene {
 
     // 重新繪製當前進度
     if (this.lastState) this.onHudUpdate(this.lastState);
+  }
+
+  /** 音效鈕狀態（開：亮框＋實線；關：淡框＋半透明） */
+  private paintSound(): void {
+    const g = this.sndG;
+    if (!g) return;
+    // 由 layoutBar 重畫較繁；這裡只更新透明度與圓框
+    const on = audio.isEnabled();
+    this.sndLabel.setAlpha(on ? 1 : 0.5);
+    g.clear();
+    const r = 22;
+    const x = this.sndHit.x, y = this.sndHit.y;
+    g.fillStyle(0x16334a, on ? 1 : 0.45).fillCircle(x, y, r);
+    g.lineStyle(2, C.frame, on ? 0.95 : 0.4).strokeCircle(x, y, r);
+    if (!on) {
+      // 關閉時畫一條斜線，不必靠顏色單獨辨識
+      g.lineStyle(3, 0xd9534f, 1).beginPath();
+      g.moveTo(x - 13, y - 13); g.lineTo(x + 13, y + 13); g.strokePath();
+    }
   }
 
   private paintHearts(hp: number, maxHp: number): void {
@@ -381,7 +433,7 @@ export class HudScene extends Phaser.Scene {
       fontFamily: '"Noto Sans TC", sans-serif', fontSize: '30px', color: '#ffffff',
       backgroundColor: '#2a9d8f', padding: { x: 40, y: 14 },
     }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    b.on('pointerup', onClick);
+    b.on('pointerup', () => { audio.play('ui'); onClick(); });
     c.add(b);
   }
 

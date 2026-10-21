@@ -24,6 +24,8 @@ export interface BehaviorHost {
   /** 由敵人自身邊界外側發射（依實際朝向計算，避免從身體內部穿出） */
   spawnEnemyProjectileFrom(enemy: EnemyBody, speed: number): void;
   setWarnSign(enemy: EnemyBody, visible: boolean): void;
+  /** 預警音效（只在正式進入預警時呼叫；節流由 AudioManager 處理） */
+  playWarnSfx?(): void;
 }
 
 /** 每幀更新單一敵人；dt 為有效遊戲時間（ms，已含 50ms 上限） */

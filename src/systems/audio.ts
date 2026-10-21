@@ -45,6 +45,8 @@ export class AudioManager {
   private lastShootAt = 0;
   private lastHitAt = 0;
   private lastWarnAt = 0;
+  /** resume() 曾失敗（iOS 手勢失效或系統中斷）；下一次手勢會再試 */
+  private resumeFailed = false;
 
   constructor() {
     this.enabled = this.readPref();
@@ -74,8 +76,12 @@ export class AudioManager {
   }
 
   // ── 生命週期 ────────────────────────────────────────────
-  /** 必須在使用者手勢（點擊）中呼叫，兼顧 iOS Safari 解鎖 */
-  async unlock(): Promise<void> {
+  /**
+   * 必須在「使用者手勢」的同步階段呼叫（pointerup / touchend / click）。
+   * iOS Safari 只認手勢當下建立並 resume 的 AudioContext；
+   * 若等到 async 之後才建立，常常停在 suspended。
+   */
+  unlock(): void {
     try {
       if (!this.ctx) {
         const Ctor = window.AudioContext
@@ -83,14 +89,71 @@ export class AudioManager {
         if (!Ctor) return;
         this.ctx = new Ctor();
         this.master = this.ctx.createGain();
-        this.master.gain.value = 0.9;
+        this.master.gain.setValueAtTime(0.9, this.ctx.currentTime);
         this.master.connect(this.ctx.destination);
       }
-      if (this.ctx.state === 'suspended') await this.ctx.resume();
+      // 同步建立後立刻呼叫 resume()；成功／失敗都要處理，不能假定已 running
+      if (this.ctx.state !== 'running') {
+        const p = this.ctx.resume();
+        if (p && typeof p.then === 'function') {
+          p.then(
+            () => this.onResumed(),
+            () => { this.resumeFailed = true; },
+          );
+        }
+      } else {
+        this.onResumed();
+      }
+      this.watchState();
     } catch {
       // 解鎖失敗不阻塞遊戲；後續手勢會再試
     }
   }
+
+  private onResumed(): void {
+    this.resumeFailed = false;
+    this.suspended = false;
+  }
+
+  /** 記錄 state 變化並在變成 suspended 時嘗試恢復（只在使用者手勢內有效） */
+  private watchState(): void {
+    const ctx = this.ctx;
+    if (!ctx || (ctx as unknown as { __w?: boolean }).__w) return;
+    (ctx as unknown as { __w?: boolean }).__w = true;
+    ctx.onstatechange = () => {
+      // iOS 除 suspended 外還有非標準的 'interrupted'（來電／切換 App）。
+      // 兩者都代表「此刻無聲」，但成因不同：interrupted 需等系統釋放後由手勢 resume。
+      if (ctx.state === 'running') {
+        this.resumeFailed = false;
+        this.suspended = false;
+      }
+    };
+  }
+
+  /** 目前狀態（供除錯與複驗判斷，不影響玩法） */
+  state(): string {
+    return this.ctx ? this.ctx.state : 'none';
+  }
+
+  /**
+   * 等待 resume() 真正完成後再繼續（成功或失敗都會回傳實際 state）。
+   * 用途：點「開始遊戲」時必須先等 Context running，才切場景並播第一個音，
+   * 避免「尚未恢復就播放」或「剛恢復又被生命週期停止」。
+   */
+  whenReady(): Promise<string> {
+    const ctx = this.ctx;
+    if (!ctx) return Promise.resolve('none');
+    if (ctx.state === 'running') return Promise.resolve('running');
+    const p = ctx.resume();
+    if (!p || typeof p.then !== 'function') return Promise.resolve(ctx.state);
+    return p.then(
+      () => { this.onResumed(); return ctx.state; },
+      () => { this.resumeFailed = true; return ctx.state; },
+    );
+  }
+
+  /** resume 是否曾失敗（僅供除錯判斷，不影響玩法） */
+  hasResumeFailed(): boolean { return this.resumeFailed; }
 
   private async resume(): Promise<void> {
     if (!this.ctx) return this.unlock();
@@ -101,12 +164,14 @@ export class AudioManager {
 
   /** 暫停／失焦／轉直向：停止戰鬥聲，保留按鈕回饋（由呼叫端決定是否全停） */
   setSuspended(v: boolean): void {
+    if (__DEV_HOOK__) this.log('setSuspended:' + String(v) + ':' + this.caller(), 'ui');
     this.suspended = v;
     if (v) this.stopAll();
     else void this.resume();
   }
 
   stopAll(): void {
+    if (__DEV_HOOK__) this.log('stopAll:' + this.voices.length + ':' + this.caller(), 'ui');
     for (const v of this.voices) this.kill(v);
     this.voices = [];
   }
@@ -171,6 +236,15 @@ export class AudioManager {
     window.setTimeout(() => {
       this.voices = this.voices.filter((v) => v !== voice);
     }, Math.max(0, lifeMs) + 60);
+  }
+
+  /** dev：取呼叫堆疊中的第一個非 audio.ts 幀，辨識呼叫來源 */
+  private caller(): string {
+    const st = new Error().stack ?? '';
+    const line = st.split('\n').find((l) => l.includes('http') && !l.includes('/systems/audio'));
+    if (!line) return 'unknown';
+    const m = line.match(/([A-Za-z0-9_-]+\.ts):(\d+)/);
+    return m ? m[1] + ':' + m[2] : 'unknown';
   }
 
   private log(reason: string, kind: SfxName): void {

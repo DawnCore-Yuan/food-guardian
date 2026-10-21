@@ -101,10 +101,14 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private startGame(): void {
-    // 必須在實際點擊中解鎖 AudioContext（iPhone Safari）
-    void audio.unlock();
-    audio.setSuspended(false);
-    audio.play('ui');
-    this.scene.start('Game');
+    // 順序很重要：解鎖 → 等 resume 真正完成 → 才切換場景並播第一個音。
+    // 若先切換場景，GameScene.create 會再次呼叫 setSuspended(false)／stopAll，
+    // 可能把剛恢復的 Context 或剛開始的聲音打斷。
+    audio.unlock();
+    audio.whenReady().then(() => {
+      audio.setSuspended(false);
+      audio.play('ui');
+      this.scene.start('Game');
+    });
   }
 }

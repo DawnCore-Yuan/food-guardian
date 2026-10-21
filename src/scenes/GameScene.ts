@@ -173,7 +173,10 @@ export class GameScene extends Phaser.Scene {
     };
     const onHide = (): void => { if (document.hidden) audio.setSuspended(true); else audio.setSuspended(false); };
     document.addEventListener('visibilitychange', onHide);
-    window.addEventListener('blur', () => audio.setSuspended(true));
+    // 視窗失焦不再直接靜音（會導致返回後整場無聲）；
+    // 切到背景由 visibilitychange 處理，返回時由「繼續」等有效操作恢復。
+    const onBlur = (): void => { if (document.hidden) audio.setSuspended(true); };
+    window.addEventListener('blur', onBlur);
     window.addEventListener('resize', apply);
     window.addEventListener('orientationchange', apply);
     apply();
@@ -181,6 +184,7 @@ export class GameScene extends Phaser.Scene {
       window.removeEventListener('resize', apply);
       window.removeEventListener('orientationchange', apply);
       document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('blur', onBlur);
       hint.remove();
     };
   }
@@ -226,7 +230,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onResume(): void {
+    // 只有「使用者按繼續」這條有效操作才會走到這裡；順序：先恢復狀態再放行播放
     audio.setSuspended(false);
+    void audio.whenReady();
     // 恢復時再清一次，避免暫停期間殘留的按鍵/指標狀態
     this.input2.clearAll();
     this.cooldownMs = Math.max(0, this.cooldownMs);

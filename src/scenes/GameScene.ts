@@ -376,6 +376,17 @@ export class GameScene extends Phaser.Scene {
     body.setOffset((obj.width - bodyW) / 2, (obj.height - bodyH) / 2);
   }
 
+  /** 彈體：材質已裁去透明留白，collision 與顯示同尺寸；置中對齊後 offset = 0 */
+  private applyImageCenteredBody(
+    obj: Phaser.Physics.Arcade.Image,
+    bodyW: number,
+    bodyH: number,
+  ): void {
+    const body = obj.body as Phaser.Physics.Arcade.Body;
+    body.setSize(bodyW, bodyH);
+    body.setOffset((obj.width - bodyW) / 2, (obj.height - bodyH) / 2);
+  }
+
   private fireBullet(): void {
     // 以「彈體左緣」貼齊機首右緣 + 4px 間隙。
     // 注意 displayWidth 是寬度的兩倍（sprite 的 width/height 存半值、scaleX=2 抵銷），
@@ -386,7 +397,7 @@ export class GameScene extends Phaser.Scene {
     b.setActive(true).setVisible(true);
     this.applyBulletTexture(b, 'art-player-bullet', TEX.playerBullet);
     (b.body as Phaser.Physics.Arcade.Body).enable = true;
-    b.body!.setSize(BALANCE.player.bulletW, BALANCE.player.bulletH);
+    this.applyImageCenteredBody(b, BALANCE.player.bulletW, BALANCE.player.bulletH);
     b.setVelocityX(BALANCE.player.bulletSpeed);
   }
 
@@ -450,7 +461,7 @@ export class GameScene extends Phaser.Scene {
     b.setActive(true).setVisible(true);
     this.applyBulletTexture(b, 'art-enemy-bullet', TEX.enemyBullet);
     (b.body as Phaser.Physics.Arcade.Body).enable = true;
-    b.body!.setSize(12, 12);
+    this.applyImageCenteredBody(b, BALANCE.enemyBullet.w, BALANCE.enemyBullet.h);
     (b.body as Phaser.Physics.Arcade.Body).allowGravity = false;
     b.setVelocityX(-speed);
   }

@@ -84,16 +84,18 @@ export function buildPlaceholders(scene: Phaser.Scene, kinds: KindVisual[]): voi
     g.fillStyle(0x1b2b3a, 1).fillRect(13, 21, 4, 4);
   });
 
-  // 敵彈（辨識度版）：12×12，深紫外框 + 紫色實心 + 偏亮中心；不使用縮圖，避免 12px 糊成一團
-  // 只改視覺，不動 12×12 碰撞體與速度。
-  if (scene.textures.exists('art-enemy-bullet')) scene.textures.remove('art-enemy-bullet');
+  // 敵彈（24×24）：同一設計語言按比例重繪，不是放大 12×12 點陣圖。
+  // 主體半徑 10.8 = 12×12 版本 5.4 的兩倍，無留白（透明邊 = 0）。
   // 色階沿用原稿實測值：外緣 48,1,139 / 中環 188,89,253 / 中心 252,211,251
-  make('art-enemy-bullet', 12, 12, (g) => {
-    g.fillStyle(0x30018b, 1).fillCircle(6, 6, 5.4);   // 深紫外緣（保留紫色實心輪廓）
-    g.fillStyle(0xbc59fd, 1).fillCircle(6, 6, 3.9);   // 紫色主體
-    g.fillStyle(0xfcd3fb, 1).fillCircle(5.6, 5.4, 1.7); // 偏亮中心，與外緣區隔
+  if (scene.textures.exists('art-enemy-bullet')) scene.textures.remove('art-enemy-bullet');
+  make('art-enemy-bullet', 24, 24, (g) => {
+    g.fillStyle(0x30018b, 1).fillCircle(12, 12, 10.8);   // 深紫外緣
+    g.fillStyle(0xbc59fd, 1).fillCircle(12, 12, 7.8);    // 紫色主體
+    g.fillStyle(0xfcd3fb, 1).fillCircle(11.2, 10.8, 3.4); // 偏亮中心
   });
 
+  // 玩家彈（40×16）：由高解析原稿重新整理（docs/art-source/player-bullet-source.png 已被離線裁切覆蓋），
+  // 執行期材質本身即為 40×16，無透明留白，scale 恆為 1。
   for (const k of kinds) {
     const pal = HAZARD_KINDS[k.kindId].palette;
     make(texFor(k.kindId), k.w, k.h, (g) => {

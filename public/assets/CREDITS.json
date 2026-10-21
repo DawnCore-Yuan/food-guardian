@@ -83,5 +83,10 @@
       "public/assets/sprites/enemies/salmonella.png": "192x96",
       "public/assets/sprites/enemies/s-aureus.png": "160x160"
     }
+  },
+  "batch5": {
+    "note": "批次 5：玩家彈與敵彈視覺與碰撞體同步放大 2 倍。玩家彈由高解析原稿重新裁切（無留白）；敵彈依同一設計語言重繪，非放大舊點陣。",
+    "playerBullet": "40x16",
+    "enemyBullet": "24x24"
   }
 }

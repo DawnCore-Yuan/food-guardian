@@ -8,8 +8,8 @@ export const BALANCE = {
     invulnMs: 1200,
     fireCooldownMs: 180,
     bulletSpeed: 700,
-    bulletW: 20,
-    bulletH: 8,
+    bulletW: 40,
+    bulletH: 16,
   },
   /** 角色視覺顯示尺寸（只影響外觀；碰撞體仍為 bodyW/bodyH 等原值） */
   visual: {
@@ -19,6 +19,8 @@ export const BALANCE = {
     salmonellaW: 192, salmonellaH: 96,
     sAureusW: 160, sAureusH: 160,
   },
+  /** 敵彈視覺與碰撞體尺寸（同步放大） */
+  enemyBullet: { w: 24, h: 24 },
   caps: {
     enemies: 16,
     playerBullets: 32,

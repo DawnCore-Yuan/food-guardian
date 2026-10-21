@@ -13,7 +13,10 @@ export const TEX = {
   warnSign: 'tex-warn',
 } as const;
 
-export function texFor(kindId: HazardKindId): string {
+/** 有美術檔就用美術檔，否則退回幾何佔位（'tex-<kind>'）。 */
+export function texFor(kindId: HazardKindId, scene?: Phaser.Scene): string {
+  const art = 'art-' + kindId;
+  if (scene && scene.textures.exists(art)) return art;
   return 'tex-' + kindId;
 }
 

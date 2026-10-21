@@ -60,7 +60,8 @@ export class GameScene extends Phaser.Scene {
       this.add.rectangle(120 + i * 220, 360, 8, 540, 0xffffff, 0.35);
     }
 
-    this.player = this.physics.add.sprite(180, 360, TEX.player);
+    const playerTex = this.textures.exists('art-player') ? 'art-player' : TEX.player;
+    this.player = this.physics.add.sprite(180, 360, playerTex);
     this.player.body!.setSize(BALANCE.player.bodyW, BALANCE.player.bodyH);
     this.player.setCollideWorldBounds(true);
     this.physics.world.setBounds(60, 90, 1160, 540);
@@ -362,7 +363,7 @@ export class GameScene extends Phaser.Scene {
     if (this.enemies.countActive(true) >= BALANCE.caps.enemies) return;
     const def: EnemyDefinition = ENEMIES[defId];
     if (!def) return;
-    const e = this.physics.add.sprite(def.spawnX, y, texFor(def.kindId)) as EnemySprite;
+    const e = this.physics.add.sprite(def.spawnX, y, texFor(def.kindId, this)) as EnemySprite;
     // 先加入群組（群組會套用 defaults 覆寫 velocity / allowGravity），再設定個別屬性
     this.enemies.add(e);
     e.body!.setSize(def.body.w, def.body.h);

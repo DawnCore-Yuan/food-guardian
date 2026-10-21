@@ -154,6 +154,89 @@ export class AudioManager {
     );
   }
 
+  /**
+   * 診斷專用：在「管理器自己的 Context 與 master 鏈」上播放固定 440Hz／0.3 秒對照音。
+   * 不另建 Context、不繞過 master、不改音量。
+   * 若這條能發聲而 shoot 不能，差異就在聲音種類；若都不能，則在共用輸出鏈。
+   */
+  probeTone(): string {
+    const ctx = this.ctx;
+    const master = this.master;
+    if (!ctx) return 'blocked: no-ctx';
+    if (!master) return 'blocked: no-master';
+    if (ctx.state !== 'running') return 'blocked: ctx-' + ctx.state;
+    try {
+      const t = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(440, t);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.6, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+      osc.connect(g);
+      g.connect(master);
+      osc.start(t);
+      osc.stop(t + 0.32);
+      return 'scheduled-tone（440Hz 0.3s 經 master）';
+    } catch (e) {
+      return 'error: ' + (e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /** 診斷：AudioManager 的離線渲染，使用與 spawn() 相同的聲源與包絡參數 */
+  static async renderOffline(kind: SfxName, seconds = 0.4): Promise<{ peak: number; nonzero: number; error?: string }> {
+    const Ctor = window.OfflineAudioContext
+      ?? (window as unknown as { webkitOfflineAudioContext?: typeof OfflineAudioContext }).webkitOfflineAudioContext;
+    if (!Ctor) return { peak: 0, nonzero: 0, error: 'OfflineAudioContext 不支援' };
+    const ctx = new Ctor(1, Math.floor(44100 * seconds), 44100);
+    // 用同一組頻率與包絡常數（與 spawn 中的 case 對應）
+    const spec: Record<string, { type: OscillatorType; f0: number; f1: number; dur: number; peak: number }[]> = {
+      shoot: [{ type: 'triangle', f0: 620, f1: 980, dur: 0.085, peak: 0.10 }],
+      hit: [{ type: 'square', f0: 420, f1: 260, dur: 0.05, peak: 0.045 }],
+      kill: [{ type: 'sine', f0: 300, f1: 90, dur: 0.24, peak: 0.16 }],
+      hurt: [{ type: 'sawtooth', f0: 330, f1: 180, dur: 0.16, peak: 0.13 }],
+      warn: [{ type: 'square', f0: 720, f1: 720, dur: 0.07, peak: 0.075 }],
+      ui: [{ type: 'triangle', f0: 880, f1: 620, dur: 0.06, peak: 0.08 }],
+      win: [{ type: 'triangle', f0: 523, f1: 523, dur: 0.14, peak: 0.12 }],
+      lose: [{ type: 'sine', f0: 392, f1: 392, dur: 0.18, peak: 0.11 }],
+    };
+    try {
+      const master = ctx.createGain();
+      master.gain.value = 0.9;
+      master.connect(ctx.destination);
+      const voice = ctx.createGain();
+      voice.gain.value = 0;
+      voice.connect(master);
+      for (const s of spec[kind] ?? []) {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = s.type;
+        o.frequency.setValueAtTime(s.f0, 0);
+        o.frequency.exponentialRampToValueAtTime(Math.max(40, s.f1), s.dur);
+        g.gain.setValueAtTime(0, 0);
+        g.gain.linearRampToValueAtTime(s.peak, 0.012);
+        g.gain.exponentialRampToValueAtTime(0.0001, s.dur);
+        o.connect(g);
+        g.connect(voice);
+        o.start(0);
+        o.stop(s.dur + 0.02);
+      }
+      const buf = await ctx.startRendering();
+      const data = buf.getChannelData(0);
+      let peak = 0;
+      let nonzero = 0;
+      for (let i = 0; i < data.length; i++) {
+        const v = Math.abs(data[i]);
+        if (v > peak) peak = v;
+        if (v > 1e-6) nonzero++;
+      }
+      return { peak, nonzero };
+    } catch (e) {
+      return { peak: 0, nonzero: 0, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
   /** resume 是否曾失敗（僅供除錯判斷，不影響玩法） */
   hasResumeFailed(): boolean { return this.resumeFailed; }
 
@@ -340,8 +423,10 @@ export class AudioManager {
   /** 每個音效都是一個短包絡；不放循環、不長尾 */
   private spawn(ctx: AudioContext, out: GainNode, kind: SfxName): Voice | null {
     const t = ctx.currentTime;
+    // voice 增益層保留給 stopAll 歸零用；初值必須是 1，
+    // 否則（原本為 0 且從未排程）會把整條鏈乘成 0 → 完全無聲。
     const gain = ctx.createGain();
-    gain.gain.value = 0;
+    gain.gain.value = 1;
     gain.connect(out);
 
     const nodes: AudioScheduledSourceNode[] = [];

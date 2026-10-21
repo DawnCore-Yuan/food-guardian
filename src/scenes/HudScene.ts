@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { loadSettings, saveSettings } from '../systems/storage';
 import { audio } from '../systems/audio';
 import type { RunResult } from '../types';
+import { leaderboard } from '../leaderboard/hub';
 
 interface HudState {
   hp: number;
@@ -439,7 +440,7 @@ export class HudScene extends Phaser.Scene {
     this.clearOverlay();
     const { width, height } = this.scale;
     const shade = this.add.rectangle(width / 2, height / 2, width, height, 0x0b2b3c, 0.55);
-    const box = this.add.rectangle(width / 2, height / 2, 620, 420, 0xffffff, 0.97).setStrokeStyle(4, 0x2a9d8f);
+    const box = this.add.rectangle(width / 2, height / 2, 660, 480, 0xffffff, 0.97).setStrokeStyle(4, 0x2a9d8f);
     const label = this.add.text(width / 2, height / 2 - 150, title, {
       fontFamily: '"Noto Sans TC", sans-serif', fontSize: '44px', color: '#1b4965',
     }).setOrigin(0.5);
@@ -449,11 +450,11 @@ export class HudScene extends Phaser.Scene {
     return c;
   }
 
-  private button(c: Phaser.GameObjects.Container, y: number, text: string, onClick: () => void): void {
+  private button(c: Phaser.GameObjects.Container, y: number, text: string, onClick: () => void, bg = '#2a9d8f'): void {
     const { width } = this.scale;
     const b = this.add.text(width / 2, y, text, {
       fontFamily: '"Noto Sans TC", sans-serif', fontSize: '30px', color: '#ffffff',
-      backgroundColor: '#2a9d8f', padding: { x: 40, y: 14 },
+      backgroundColor: bg, padding: { x: 40, y: 14 },
     }).setOrigin(0.5).setInteractive({ useHandCursor: true });
     b.on('pointerup', () => { audio.play('ui'); onClick(); });
     c.add(b);
@@ -478,7 +479,7 @@ export class HudScene extends Phaser.Scene {
     });
   }
 
-  private showResult(r: RunResult): void {
+  private showResult(r: RunResult & LeaderboardResultMeta): void {
     const { height } = this.scale;
     const settings = loadSettings();
     const isNew = r.score > settings.highScore;
@@ -497,16 +498,50 @@ export class HudScene extends Phaser.Scene {
       fontFamily: '"Noto Sans TC", sans-serif', fontSize: '22px', color: isNew ? '#e76f51' : '#5a8aa8',
     }).setOrigin(0.5));
 
-    this.button(c, height / 2 + 90, '再玩一次', () => {
+    // 只有正式 180 秒關卡、且本局取得單局識別的結算才能登錄排行榜（規格 §2.8）
+    if (r.leaderboardEligible && r.runTicketId) {
+      this.button(c, height / 2 + 90, '登錄排行榜', () => {
+        this.openLeaderboardSubmit(r);
+      }, '#24425c');
+    } else {
+      c.add(this.add.text(width / 2, height / 2 + 90, r.leaderboardReason ?? '本局不列入排行榜', {
+        fontFamily: '"Noto Sans TC", sans-serif', fontSize: '18px', color: '#8aa9bd',
+      }).setOrigin(0.5));
+    }
+
+    this.button(c, height / 2 + 170, '再玩一次', () => {
       this.clearOverlay();
       const gs = this.scene.get('Game') as unknown as { restartRun: () => void };
       gs.restartRun();
     });
-    this.button(c, height / 2 + 170, '回主選單', () => {
+    this.button(c, height / 2 + 250, '回主選單', () => {
       this.clearOverlay();
       (this.scene.get('Game') as unknown as { stopForMenu: () => void }).stopForMenu();
     });
   }
+
+  /** 結算後登錄排行榜：HTML overlay 蓋在 Canvas 上，暫停鍵盤輸入避免誤觸 */
+  private openLeaderboardSubmit(r: RunResult & LeaderboardResultMeta): void {
+    this.scene.pause('Game');
+    try {
+      leaderboard().openSubmit(
+        { score: r.score, outcome: r.outcome, elapsedMs: r.elapsedMs, kills: r.kills, escapes: r.escapes },
+        () => {
+          this.clearOverlay();
+          (this.scene.get('Game') as unknown as { stopForMenu: () => void }).stopForMenu();
+        },
+      );
+    } catch {
+      this.scene.resume('Game');
+    }
+  }
+}
+
+/** 來自 GameScene 的排行榜資格欄位（由結算事件附帶） */
+interface LeaderboardResultMeta {
+  leaderboardEligible: boolean;
+  runTicketId: string | null;
+  leaderboardReason?: string;
 }
 
 /** MM:SS，分鐘與秒都補零（顯示用，不改遊戲規則） */

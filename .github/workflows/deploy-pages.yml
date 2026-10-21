@@ -1,0 +1,94 @@
+name: Deploy to GitHub Pages
+
+# 目的：把遊戲建置後發佈到 https://<帳號>.github.io/<儲存庫名稱>/
+# 儲存庫名稱不寫死：
+#   - Repository variable VITE_BASE（選填）：例如 "/my-repo/"；未設定時自動用 github.event.repository.name。
+#   - 若之後改用自訂網域，把 VITE_BASE 設為 "https://你的網域/"。
+# 本檔不含任何密鑰；前端只用「公開」的 Supabase URL 與 anon key（Repository variables）。
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Leaderboard logic tests
+        run: npm run test:leaderboard
+
+      - name: Resolve base path
+        id: base
+        run: |
+          if [ -n "${VITE_BASE_VAR}" ]; then
+            echo "value=${VITE_BASE_VAR}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=/${REPO_NAME}/" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          VITE_BASE_VAR: ${{ vars.VITE_BASE }}
+          REPO_NAME: ${{ github.event.repository.name }}
+
+      - name: Build (no dev hooks)
+        env:
+          VITE_BASE: ${{ steps.base.outputs.value }}
+          VITE_LEADERBOARD_SUPABASE_URL: ${{ vars.LEADERBOARD_SUPABASE_URL }}
+          VITE_LEADERBOARD_SUPABASE_ANON_KEY: ${{ vars.LEADERBOARD_SUPABASE_ANON_KEY }}
+          VITE_LEADERBOARD_VERSION: ${{ vars.LEADERBOARD_VERSION || 'official-180s-v1' }}
+        run: npm run build
+
+      - name: Assert production bundle is clean
+        env:
+          BASE: ${{ steps.base.outputs.value }}
+        run: |
+          set -euo pipefail
+          test -f dist/index.html
+          if [ -e dist/audio-diagnostic.html ]; then
+            echo "::error::正式包含有音訊診斷頁（dev 工具）"; exit 1
+          fi
+          if grep -R -q "__FG_GAME__" dist/assets/ ; then
+            echo "::error::正式包出現 dev 掛鉤 __FG_GAME__"; exit 1
+          fi
+          if [ "${BASE}" != "./" ]; then
+            grep -q "${BASE%/}/assets/" dist/index.html || {
+              echo "::error::index.html 未使用預期的 base 路徑 ${BASE}"; exit 1; }
+          fi
+          echo "OK：dist/index.html 與 assets 路徑皆為 ${BASE}"
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

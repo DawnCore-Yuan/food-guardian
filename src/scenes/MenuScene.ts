@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { loadSettings } from '../systems/storage';
 import { audio } from '../systems/audio';
+import { leaderboard } from '../leaderboard/hub';
 
 export class MenuScene extends Phaser.Scene {
   constructor() { super('Menu'); }
@@ -68,13 +69,25 @@ export class MenuScene extends Phaser.Scene {
     start.on('pointerup', () => this.startGame());
     this.input.keyboard?.on('keydown-ENTER', () => this.startGame());
 
+    // 排行榜入口：與開始遊戲同寬度語彙、深藍底，維持首頁只剩一個主 CTA（綠色）
+    const lbLabel = this.add.text(width / 2, height * 0.705, '排行榜', {
+      fontFamily: '"Noto Sans TC", sans-serif', fontSize: '30px', color: '#ffffff',
+      backgroundColor: '#24425c', padding: { x: 36, y: 14 },
+    }).setOrigin(0.5).setName('menu-leaderboard');
+    // 新增按鈕同樣維持 ≥48 CSS px 命中高度
+    const lbBox = lbLabel.getBounds();
+    const lbHitH = Math.max(lbBox.height, Math.ceil(48 / Math.max(0.01, cssScaleGuarded(this))));
+    const lbHit = this.add.zone(lbLabel.x, lbLabel.y, lbBox.width + 24, lbHitH)
+      .setOrigin(0.5).setInteractive({ useHandCursor: true }).setName('menu-leaderboard-hit');
+    lbHit.on('pointerup', () => this.openLeaderboard());
+
     // 依輸入能力顯示：觸控尚未實作，明確標示
     const touch = typeof window !== 'undefined' && 'ontouchstart' in window;
-    this.add.text(width / 2, height * 0.78, touch ? '手機請橫向遊玩：左側移動、右側按住射擊' : '鍵盤：WASD／方向鍵移動　Space／J 射擊', {
+    this.add.text(width / 2, height * 0.805, touch ? '手機請橫向遊玩：左側移動、右側按住射擊' : '鍵盤：WASD／方向鍵移動　Space／J 射擊', {
       fontFamily: '"Noto Sans TC", sans-serif', fontSize: '22px', color: '#5a8aa8',
     }).setOrigin(0.5);
 
-    this.add.text(width / 2, height * 0.90, 'Esc／P 暫停　·　點右上角可暫停', {
+    this.add.text(width / 2, height * 0.885, 'Esc／P 暫停　·　點右上角可暫停', {
       fontFamily: '"Noto Sans TC", sans-serif', fontSize: '18px', color: '#7c9cb3',
     }).setOrigin(0.5);
 
@@ -134,15 +147,36 @@ export class MenuScene extends Phaser.Scene {
     footer.setY(height - bottomSafe);
   }
 
+  private openLeaderboard(): void {
+    audio.play('ui');
+    try {
+      leaderboard().openBoard(() => {
+        // 關閉後焦點交還畫布，鍵盤 Enter 才能繼續開始遊戲
+        this.game.canvas.focus?.();
+      });
+    } catch {
+      // 排行榜 UI 失敗不得阻擋首頁
+    }
+  }
+
   private startGame(): void {
     // 順序很重要：解鎖 → 等 resume 真正完成 → 才切換場景並播第一個音。
     // 若先切換場景，GameScene.create 會再次呼叫 setSuspended(false)／stopAll，
     // 可能把剛恢復的 Context 或剛開始的聲音打斷。
     audio.unlock();
+    // 新的一局：換發新的單局識別（失敗不阻擋遊戲）
+    try { leaderboard().newRun(); } catch { /* 排行榜故障不影響遊戲 */ }
     audio.whenReady().then(() => {
       audio.setSuspended(false);
       audio.play('ui');
       this.scene.start('Game');
     });
   }
+}
+
+/** 由 canvas 實際顯示寬度回推 CSS／邏輯像素比例（命中區尺寸計算用） */
+function cssScaleGuarded(scene: Phaser.Scene): number {
+  const rect = scene.game.canvas.getBoundingClientRect();
+  const s = rect.width / scene.scale.width;
+  return Number.isFinite(s) && s > 0 ? s : 1;
 }

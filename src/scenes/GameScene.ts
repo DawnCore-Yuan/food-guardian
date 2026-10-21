@@ -804,6 +804,21 @@ export class GameScene extends Phaser.Scene {
     const hpBonus = outcome === 'won' ? this.run.hp * BALANCE.score.hpBonusPerLife : 0;
     audio.stopAll();
     audio.play(outcome === 'won' ? 'win' : 'lose');
+    // 排行榜資格：只認正式 180 秒關卡（測試／debug 關卡一律不可上榜）；
+    // 單局識別由伺服器核發，沒有識別就不可能通過伺服器驗證。
+    const eligible = this.level.id === 'official-180s';
+    let leaderboardEligible = false;
+    let leaderboardReason: string | undefined;
+    if (!eligible) {
+      leaderboardReason = '測試關卡不列入排行榜';
+    } else {
+      try {
+        leaderboardEligible = true;
+      } catch {
+        leaderboardEligible = false;
+        leaderboardReason = '排行榜暫時無法使用，本局不登錄';
+      }
+    }
     this.scene.get('Hud').events.emit('finished', {
       outcome,
       score: this.run.score + hpBonus,
@@ -811,6 +826,8 @@ export class GameScene extends Phaser.Scene {
       elapsedMs: this.run.elapsedMs,
       kills: this.run.kills,
       escapes: this.run.escapes,
+      leaderboardEligible,
+      leaderboardReason,
     });
   }
 

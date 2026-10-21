@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:leaderboard": "node --test scripts/leaderboard-logic.test.mjs",
+    "verify:leaderboard": "node scripts/leaderboard-verify.mjs",
+    "build:pages": "npm run build"
   },
   "engines": {
     "node": ">=20 <25"

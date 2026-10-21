@@ -9,6 +9,8 @@ export class BootScene extends Phaser.Scene {
     // 執行期素材（等比整理後的遊戲尺寸）；缺檔時退回幾何佔位
     // 標誌（批次 8）：高解析原稿 2097×750，透明背景
     this.load.image('art-logo', 'assets/sprites/logo.png');
+    // 中臺科技大學校名（使用者提供的 AI 重製版本，非校方官方原檔）
+    this.load.image('art-logo-ctust', 'assets/sprites/logo-ctust.png');
     this.load.image('art-player', 'assets/sprites/player.png');
     this.load.image('art-aflatoxin', 'assets/sprites/enemies/aflatoxin.png');
     this.load.image('art-sulfur_dioxide_excess', 'assets/sprites/enemies/sulfur-dioxide-excess.png');

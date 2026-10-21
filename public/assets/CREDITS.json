@@ -31,6 +31,13 @@
       "source": "docs/art-source/enemy-s-aureus-source.png",
       "display": "160x160",
       "orientation": "none"
+    },
+    {
+      "file": "public/assets/sprites/logo-ctust.png",
+      "source": "docs/art-source/logo-ctust-source.png",
+      "display": "2092x444（僅裁去多餘透明留白）",
+      "orientation": "橫式",
+      "note": "使用者提供的 AI 重製版本，非校方官方原檔；透明背景保留，未加底板、陰影或外光暈。"
     }
   ],
   "batch2": {

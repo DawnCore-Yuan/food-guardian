@@ -242,8 +242,13 @@ export class HudScene extends Phaser.Scene {
     this.timeText.setText('00:00 / 03:00');
     const timeW = Math.ceil(this.timeText.width) + 8;
     this.timeText.setText(sample);
-    const timeGap = 10;
-    const timeRight = pauseX - pauseR - 14;
+    // 右側預留（由右往左）：暫停鈕 → gap → 音效鈕 → gap → 時間欄位 → gap → 進度條
+    const btnGap = 12;                       // 兩顆圓鈕之間
+    const sndR = pauseR;                     // 音效鈕與暫停鈕同尺寸
+    const sndX = pauseX - pauseR - btnGap - sndR;
+    const timeGap = 12;
+    // 時間右緣必須在「音效鈕左緣」再往左一個 gap
+    const timeRight = sndX - sndR - timeGap;
     const timeX = timeRight - timeW / 2;
 
     // 愛心：固定五格
@@ -333,8 +338,6 @@ export class HudScene extends Phaser.Scene {
     this.geo.progY = cy;
 
     // 音效鈕（暫停鈕左側）
-    const sndR = pauseR;
-    const sndX = pauseX - sndR * 2 - 14;
     this.sndG.clear();
     this.sndG.fillStyle(0x16334a, audio.isEnabled() ? 1 : 0.45).fillCircle(sndX, cy, sndR);
     this.sndG.lineStyle(2, C.frame, audio.isEnabled() ? 0.95 : 0.4).strokeCircle(sndX, cy, sndR);

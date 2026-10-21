@@ -15,6 +15,7 @@ export class HudScene extends Phaser.Scene {
     this.events.on('show-pause', () => this.showPause());
     this.events.on('finished', (r: RunResult) => this.showResult(r));
     this.events.once('shutdown', () => this.clearOverlay());
+    this.events.emit('hud-ready');
   }
 
   private clearOverlay(): void {
@@ -54,14 +55,13 @@ export class HudScene extends Phaser.Scene {
     });
     this.button(c, height / 2 + 60, '重新開始', () => {
       this.clearOverlay();
-      this.scene.stop('Game');
-      this.scene.start('Game');
+      const gs = this.scene.get('Game') as unknown as { restartRun: () => void };
       this.scene.resume('Game');
+      gs.restartRun();
     });
     this.button(c, height / 2 + 160, '回主選單', () => {
       this.clearOverlay();
-      this.scene.stop('Game');
-      this.scene.start('Menu');
+      (this.scene.get('Game') as unknown as { stopForMenu: () => void }).stopForMenu();
     });
   }
 
@@ -86,14 +86,12 @@ export class HudScene extends Phaser.Scene {
 
     this.button(c, height / 2 + 90, '再玩一次', () => {
       this.clearOverlay();
-      this.scene.stop('Game');
-      this.scene.start('Game');
-      this.scene.resume('Game');
+      const gs = this.scene.get('Game') as unknown as { restartRun: () => void };
+      gs.restartRun();
     });
     this.button(c, height / 2 + 170, '回主選單', () => {
       this.clearOverlay();
-      this.scene.stop('Game');
-      this.scene.start('Menu');
+      (this.scene.get('Game') as unknown as { stopForMenu: () => void }).stopForMenu();
     });
   }
 }

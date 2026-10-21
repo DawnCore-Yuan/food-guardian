@@ -22,6 +22,7 @@ export class GameScene extends Phaser.Scene {
   private pending: Array<{ at: number; enemyId: string; y: number }> = [];
   private cooldownMs = 0;
   private invulnMs = 0;
+  private hudReady = false;
   private hudText!: Phaser.GameObjects.Text;
   private progress!: Phaser.GameObjects.Rectangle;
 
@@ -72,12 +73,63 @@ export class GameScene extends Phaser.Scene {
     this.input2 = new InputController();
     this.input2.attach(this.game.canvas, () => this.requestPause());
 
+    // HudScene 為獨立 scene，永不暫停；等它 create 完成（hud-ready）後才啟用事件
+    this.hudReady = false;
+    if (this.scene.isActive('Hud')) {
+      this.scene.stop('Hud');
+    }
+    const hud = this.scene.get('Hud');
+    hud.events.once('hud-ready', () => { this.hudReady = true; });
+    this.scene.launch('Hud');
+
+    if (__DEV_HOOK__) {
+      this.sys.events.on(Phaser.Scenes.Events.POST_UPDATE, this.samplePostUpdate, this);
+    }
+    this.events.on('resume', () => this.onResume());
     this.events.once('shutdown', () => this.cleanup());
   }
 
   private requestPause(): void {
+    if (!this.hudReady) return;
+    if (!this.isFighting) return;
+    this.input2.clearAll();
+    this.player.setVelocity(0, 0);
     this.scene.pause();
     this.scene.get('Hud').events.emit('show-pause');
+  }
+
+  /** dev-only：以場景 POST_UPDATE 為固定取樣點，與前一筆快照比較 */
+  private samplePostUpdate(): void {
+    if (!this.player?.body) return;
+    const log = window as unknown as { __SAMPLES__?: unknown[]; __PREV_SAMPLE__?: unknown };
+    log.__SAMPLES__ = log.__SAMPLES__ || [];
+    if (log.__SAMPLES__.length >= 800) return;
+    const cur = {
+      t: this.time.now,
+      x: this.player.body.position.x,
+      vx: this.player.body.velocity.x,
+      level: this.run.elapsedMs,
+      inp: this.input2.read().moveX,
+      steps: this.physics.world.stepsLastFrame,
+    };
+    const prev = log.__PREV_SAMPLE__ as typeof cur | undefined;
+    if (prev) {
+      log.__SAMPLES__.push({
+        dLevel: +(cur.level - prev.level).toFixed(2),
+        dStepsWall: cur.t - prev.t,
+        dx: +(cur.x - prev.x).toFixed(3),
+        vx: cur.vx,
+        inp: cur.inp,
+        steps: cur.steps,
+      });
+    }
+    log.__PREV_SAMPLE__ = cur;
+  }
+
+  private onResume(): void {
+    // 恢復時再清一次，避免暫停期間殘留的按鍵/指標狀態
+    this.input2.clearAll();
+    this.cooldownMs = Math.max(0, this.cooldownMs);
   }
 
   private scheduleWaves(): void {
@@ -96,8 +148,15 @@ export class GameScene extends Phaser.Scene {
     this.nextSpawnAt = this.pending.length ? this.pending[0].at : Number.POSITIVE_INFINITY;
   }
 
+  private get isFighting(): boolean {
+    return this.run.phase === 'playing' || this.run.phase === 'finishing';
+  }
+
   override update(_time: number, delta: number): void {
+    if (!this.isFighting) return;
     const dt = Math.min(delta, 50);
+    const __x0 = __DEV_HOOK__ ? this.player.body!.position.x : 0;
+    const __inp = __DEV_HOOK__ ? this.input2.read().moveX : 0;
 
     if (this.input2.consumePause()) { this.requestPause(); return; }
 
@@ -139,6 +198,20 @@ export class GameScene extends Phaser.Scene {
       if (b.active && b.x > 1280) b.destroy();
     }
 
+    if (__DEV_HOOK__) {
+      const w = window as unknown as { __SPEED_SAMPLES__?: unknown[] };
+      w.__SPEED_SAMPLES__ = w.__SPEED_SAMPLES__ || [];
+      if (w.__SPEED_SAMPLES__.length < 400) {
+        w.__SPEED_SAMPLES__.push({
+          d: +dt.toFixed(2),
+          inp: +__inp.toFixed(2),
+          vx: this.player.body!.velocity.x,
+          dx: +(this.player.body!.position.x - __x0).toFixed(3),
+          steps: this.physics.world.stepsLastFrame,
+        });
+      }
+    }
+
     this.checkOutcome();
     this.updateHud();
   }
@@ -170,6 +243,7 @@ export class GameScene extends Phaser.Scene {
 
   /** 非致命命中不改 settled；只有死亡才結算一次（規格 §6.2） */
   private onBulletHit(bullet: Phaser.Physics.Arcade.Image, enemy: EnemySprite): void {
+    if (!this.isFighting) return;
     if (!bullet.active || !enemy.active || enemy.settled) return;
     bullet.destroy();
     if (this.run.elapsedMs - enemy.enteredAt < 1) return;
@@ -186,6 +260,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onPlayerHitEnemy(enemy: EnemySprite): void {
+    if (!this.isFighting) return;
     if (!enemy.active || enemy.settled) return;
     if (this.run.elapsedMs - enemy.enteredAt < 1) return;
     enemy.settled = true;
@@ -234,6 +309,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private finish(outcome: 'won' | 'lost'): void {
+    if (!this.hudReady) return;
+    if (this.run.phase !== 'won' && this.run.phase !== 'lost') return;
+    // 終局：立即停止輸入與物理，避免結算後仍移動/加分
+    this.input2?.clearAll();
+    this.player.setVelocity(0, 0);
+    this.physics.world.pause();
     const hpBonus = outcome === 'won' ? this.run.hp * BALANCE.score.hpBonusPerLife : 0;
     this.scene.get('Hud').events.emit('finished', {
       outcome,
@@ -254,7 +335,24 @@ export class GameScene extends Phaser.Scene {
   }
 
   private cleanup(): void {
+    this.sys.events.off(Phaser.Scenes.Events.POST_UPDATE, this.samplePostUpdate, this);
     this.input2?.destroy();
     this.pending = [];
+  }
+
+  /** 供 Hud 呼叫：重玩（全新 RunState，不重建 scene，避免重複監聽） */
+  restartRun(): void {
+    this.physics.world.resume();
+    this.scene.stop('Hud');
+    this.scene.stop();
+    this.scene.start('Game');
+  }
+
+  /** 供 Hud 呼叫：真正結束本局並回到選單 */
+  stopForMenu(): void {
+    this.physics.world.resume();
+    this.scene.stop('Hud');
+    this.scene.stop();
+    this.scene.start('Menu');
   }
 }

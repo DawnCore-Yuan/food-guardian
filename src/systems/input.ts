@@ -76,6 +76,7 @@ export class InputController {
     this.state.moveX = 0;
     this.state.moveY = 0;
     this.state.firing = false;
+    this.state.pauseRequested = false;
   }
 
   read(): InputState {

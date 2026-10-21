@@ -4,7 +4,10 @@ import { MenuScene } from './scenes/MenuScene';
 import { GameScene } from './scenes/GameScene';
 import { HudScene } from './scenes/HudScene';
 
-if (new URLSearchParams(location.search).get('probe') === '1') {
+declare const __DEV_HOOK__: boolean;
+
+// 測試入口與探測模組共用同一個編譯期旗標（僅 dev server 為 true，build 一律 false）
+if (__DEV_HOOK__ && new URLSearchParams(location.search).get('probe') === '1') {
   void import('./probe').then((m) => m.runProbe());
 }
 
@@ -12,7 +15,7 @@ const app = document.getElementById('app');
 if (!app) throw new Error('missing #app');
 
 // 單一 Phaser.Game 實例；不建立第二個 rAF（規格 §10.3）
-new Phaser.Game({
+const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: app,
   width: 1280,
@@ -28,3 +31,7 @@ new Phaser.Game({
   },
   scene: [BootScene, MenuScene, GameScene, HudScene],
 });
+
+if (__DEV_HOOK__) {
+  (window as unknown as { __FG_GAME__?: Phaser.Game }).__FG_GAME__ = game;
+}

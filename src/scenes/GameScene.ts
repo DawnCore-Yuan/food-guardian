@@ -435,19 +435,25 @@ export class GameScene extends Phaser.Scene {
     b.setScale(1);
   }
 
-  /** 無碰撞視覺特效：不遮擋重要物件；暫停即停；結算/重玩時由 cleanupEffects 清理 */
+  /**
+   * 無碰撞視覺特效：只做「不遮擋」的呈現。
+   * 重要限制：GameScene 本身的更新可能被暫停，但 tweens 若沒有一起暫停，
+   * 特效會在玩家看不到時跑完；因此以場景 tween manager 綁定，暫停即凍結。
+   * 尺寸固定不放大（放大會遮住敵彈與角色），只做淡出與極小幅縮，降低動態時完全不建。
+   */
   private spawnEffect(key: string, x: number, y: number, size: number, kind: 'hit' | 'burst'): void {
     if (this.reducedMotion || !this.textures.exists(key)) return;
     const img = this.add.image(x, y, key).setDepth(kind === 'burst' ? 6 : 7);
     const from = size / img.width;
     img.setScale(from);
     img.setAlpha(kind === 'burst' ? 0.95 : 1);
+    img.setBlendMode(Phaser.BlendModes.NORMAL);
     this.effects.add(img);
     this.tweens.add({
       targets: img,
-      scale: from * (kind === 'burst' ? 1.35 : 1.15),
+      scale: from * (kind === 'burst' ? 1.08 : 1.04),
       alpha: 0,
-      duration: kind === 'burst' ? 300 : 170,
+      duration: kind === 'burst' ? 300 : 160,
       ease: 'Quad.easeOut',
       onComplete: () => { this.effects.delete(img); img.destroy(); },
     });

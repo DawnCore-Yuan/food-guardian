@@ -451,29 +451,55 @@ export class GameScene extends Phaser.Scene {
     g.fillStyle(0x1d3b56, 0.9).fillTriangle(-7, h / 2 - 1, 7, h / 2 - 1, 0, h / 2 + 9);
     const c = this.add.container(0, 0, [g, label]).setDepth(6);
     c.setData('tagH', h);
+    c.setData('tagW', w);
     this.nameTags.set(e, c);
   }
 
   /** 每幀更新名稱牌位置：跟隨敵人、避開預警與邊界、同屏重疊時上下錯開 */
   private updateNameTags(): void {
-    const placed: { x: number; y: number; w: number }[] = [];
+    if (this.nameTags.size === 0) return;
+    type Slot = { e: EnemySprite; c: Phaser.GameObjects.Container; w: number; h: number; x: number; y: number; desired: number };
+    const slots: Slot[] = [];
+
     for (const [e, c] of [...this.nameTags.entries()]) {
       if (!e.active) { c.destroy(); this.nameTags.delete(e); continue; }
       const b = e.getBounds();
-      const tagH = (c.getData('tagH') as number) ?? 32;
-      // 名稱牌置於角色上緣之上；若該敵人同時有預警三角，再往上讓一層
-      const warnOffset = e.hasWarnSign ? 34 : 0;
-      let y = b.top - tagH / 2 - 8 - warnOffset;
-      const halfW = (c.width || 120) / 2;
-      // 邊界不裁切
-      const x = Phaser.Math.Clamp(e.x, 12 + halfW, GAME_W - 12 - halfW);
-      if (y - tagH / 2 < 6) y = b.top + tagH / 2 + 8 + warnOffset;
-      // 同位置堆疊時錯開（不移動敵人、不改行為）
-      for (const p of placed) {
-        if (Math.abs(p.x - x) < 60 && Math.abs(p.y - y) < tagH) y = p.y - tagH - 4;
+      const h = (c.getData('tagH') as number) ?? 32;
+      const w = (c.getData('tagW') as number) ?? 120;
+      // 邊界不裁切：中心點夾在畫布內
+      const x = Phaser.Math.Clamp(e.x, 12 + w / 2, GAME_W - 12 - w / 2);
+      // 預設放在角色上緣之上。
+      // 預警三角已在自己的圖層（depth 5），名稱牌在 depth 6 且間距足夠，
+      // 不再額外固定上移 34px，避免把名稱牌推去撞上方敵人（改由下方避讓處理）。
+      const warnOffset = 0;
+      let y = b.top - h / 2 - 8 - warnOffset;
+      // 上方超出畫布時改放角色下方
+      if (y - h / 2 < 6) y = b.bottom + h / 2 + 8 + warnOffset;
+      const desired = y;
+      slots.push({ e, c, w, h, x, y, desired });
+    }
+
+    // 由上而下排序，依序往「上方優先、下方次之」的可用位置塞
+    slots.sort((a, b) => a.desired - b.desired);
+    const placed: { x: number; y: number; w: number; h: number }[] = [];
+    for (const s of slots) {
+      let y = s.desired;
+      const collides = (yy: number): boolean =>
+        placed.some((p) => Math.abs(p.x - s.x) < (p.w + s.w) / 2 && Math.abs(p.y - yy) < (p.h + s.h) / 2 + 4);
+      if (collides(y)) {
+        // 先往上找空位，再往下找；兩者皆受畫面邊界限制
+        let up = y;
+        for (let i = 0; i < 6 && collides(up); i++) up -= (s.h + 6);
+        let down = y;
+        for (let i = 0; i < 6 && collides(down); i++) down += (s.h + 6);
+        const upOk = up - s.h / 2 >= 6;
+        const downOk = down + s.h / 2 <= GAME_H - 6;
+        if (upOk) y = up;
+        else if (downOk) y = down;
       }
-      c.setPosition(x, y);
-      placed.push({ x, y, w: halfW * 2 });
+      s.c.setPosition(s.x, y);
+      s.c.setData('curY', y);
+      placed.push({ x: s.x, y, w: s.w, h: s.h });
     }
   }
 

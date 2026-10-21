@@ -115,6 +115,7 @@ export class HudScene extends Phaser.Scene {
 
   /** 建立頂部資訊列（獨立 HudScene；不受戰鬥背景與暫停影響） */
   private buildBar(): void {
+    // depth 50：高於 GameScene 全部內容；面板另用 1000 以上確保在最上層
     const bar = this.add.container(0, 0).setDepth(50);
     this.bar = bar;
 
@@ -250,7 +251,11 @@ export class HudScene extends Phaser.Scene {
       this.geo.logoW = 0;
     }
 
-    const progX = fixedLeft + this.geo.logoW + Math.round(barH * 0.18);
+    // 以 LOGO「實際顯示右緣」為基準，避免與進度條重疊
+    const logoRight = this.geo.logoW > 0
+      ? fixedLeft + this.geo.logoW
+      : fixedLeft - Math.round(barH * 0.18);
+    const progX = logoRight + Math.round(barH * 0.22);
     const progW = Math.max(60, rightLimit - progX - Math.round(barH * 0.18));
     const progH = Math.max(10, Math.round(barH * 0.24));
     this.geo.progX = progX;
@@ -364,7 +369,8 @@ export class HudScene extends Phaser.Scene {
     const label = this.add.text(width / 2, height / 2 - 150, title, {
       fontFamily: '"Noto Sans TC", sans-serif', fontSize: '44px', color: '#1b4965',
     }).setOrigin(0.5);
-    const c = this.add.container(0, 0, [shade, box, label]).setDepth(100);
+    // 面板必須蓋過頂部資訊列（depth 50）
+    const c = this.add.container(0, 0, [shade, box, label]).setDepth(1000);
     this.overlay = c;
     return c;
   }

@@ -19,7 +19,7 @@ export class GameScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite;
   private bullets!: Phaser.Physics.Arcade.Group;
   private enemies!: Phaser.Physics.Arcade.Group;
-  private nextSpawnAt = 0;
+  private wavesInitialized = false;
   private pending: Array<{ at: number; enemyId: string; y: number }> = [];
   private cooldownMs = 0;
   private invulnMs = 0;
@@ -31,6 +31,7 @@ export class GameScene extends Phaser.Scene {
 
   create(): void {
     this.run = new RunState(1);
+    this.wavesInitialized = false;
     this.pending = [];
     this.cooldownMs = 0;
     this.invulnMs = 0;
@@ -145,7 +146,6 @@ export class GameScene extends Phaser.Scene {
       });
     }
     this.pending.sort((a, b) => a.at - b.at);
-    this.nextSpawnAt = this.pending.length ? this.pending[0].at : Number.POSITIVE_INFINITY;
   }
 
   private get isFighting(): boolean {
@@ -179,8 +179,9 @@ export class GameScene extends Phaser.Scene {
       this.cooldownMs = BALANCE.player.fireCooldownMs;
     }
 
-    // 波次
-    if (this.pending.length === 0 && this.nextSpawnAt !== Number.POSITIVE_INFINITY) {
+    // 波次：每局只展開一次；佇列用盡即代表本局排程結束，不得重新排程
+    if (!this.wavesInitialized) {
+      this.wavesInitialized = true;
       this.scheduleWaves();
     }
     while (this.pending.length && this.run.elapsedMs >= this.pending[0].at) {

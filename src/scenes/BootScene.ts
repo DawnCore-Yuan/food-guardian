@@ -12,6 +12,11 @@ export class BootScene extends Phaser.Scene {
     this.load.image('art-sulfur_dioxide_excess', 'assets/sprites/enemies/sulfur-dioxide-excess.png');
     this.load.image('art-salmonella', 'assets/sprites/enemies/salmonella.png');
     this.load.image('art-s_aureus', 'assets/sprites/enemies/s-aureus.png');
+    this.load.image('art-bg', 'assets/sprites/bg-factory.png');
+    this.load.image('art-player-bullet', 'assets/sprites/player-bullet.png');
+    this.load.image('art-enemy-bullet', 'assets/sprites/enemy-bullet.png');
+    this.load.image('art-hit-spark', 'assets/sprites/hit-spark.png');
+    this.load.image('art-enemy-burst', 'assets/sprites/enemy-burst.png');
   }
 
   create(): void {

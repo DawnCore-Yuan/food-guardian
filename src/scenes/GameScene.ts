@@ -13,6 +13,9 @@ import { TEX, texFor, buildPlaceholders } from '../data/placeholder';
 
 type EnemySprite = EnemyBody;
 
+const GAME_W = 1280;
+const GAME_H = 720;
+
 export class GameScene extends Phaser.Scene {
   private input2!: InputController;
   private run!: RunState;
@@ -24,6 +27,7 @@ export class GameScene extends Phaser.Scene {
   private warnIcons = new Map<Phaser.GameObjects.Image, EnemySprite>();
   private warnIconOf = new Map<EnemySprite, Phaser.GameObjects.Image>();
   private reducedMotion = false;
+  private effects = new Set<Phaser.GameObjects.Image>();
   private touch: TouchController | null = null;
   private orientationCleanup: (() => void) | null = null;
   private readonly behaviorHost: BehaviorHost = {
@@ -55,9 +59,14 @@ export class GameScene extends Phaser.Scene {
 
     this.cameras.main.setBackgroundColor('#dcecf7');
 
-    // 背景捲動條
-    for (let i = 0; i < 6; i++) {
-      this.add.rectangle(120 + i * 220, 360, 8, 540, 0xffffff, 0.35);
+    // 背景：靜態鋪底（未驗證無縫拼接，不做循環）
+    // z 由 add 順序決定：背景 < 遊戲物件 < 特效 < HUD(獨立 scene)
+    if (this.textures.exists('art-bg')) {
+      this.add.image(GAME_W / 2, GAME_H / 2, 'art-bg').setDepth(-10);
+    } else {
+      for (let i = 0; i < 6; i++) {
+        this.add.rectangle(120 + i * 220, 360, 8, 540, 0xffffff, 0.35);
+      }
     }
 
     const playerTex = this.textures.exists('art-player') ? 'art-player' : TEX.player;
@@ -353,7 +362,7 @@ export class GameScene extends Phaser.Scene {
     const b = this.bullets.get(this.player.x + 36, this.player.y) as Phaser.Physics.Arcade.Image | null;
     if (!b) return;
     b.setActive(true).setVisible(true);
-    b.setTexture(TEX.playerBullet);
+    this.applyBulletTexture(b, 'art-player-bullet', TEX.playerBullet);
     (b.body as Phaser.Physics.Arcade.Body).enable = true;
     b.body!.setSize(BALANCE.player.bulletW, BALANCE.player.bulletH);
     b.setVelocityX(BALANCE.player.bulletSpeed);
@@ -413,11 +422,51 @@ export class GameScene extends Phaser.Scene {
     const b = this.enemyBullets.get(x, y) as Phaser.Physics.Arcade.Image | null;
     if (!b) return;
     b.setActive(true).setVisible(true);
-    b.setTexture(TEX.enemyBullet);
+    this.applyBulletTexture(b, 'art-enemy-bullet', TEX.enemyBullet);
     (b.body as Phaser.Physics.Arcade.Body).enable = true;
     b.body!.setSize(12, 12);
     (b.body as Phaser.Physics.Arcade.Body).allowGravity = false;
     b.setVelocityX(-speed);
+  }
+
+  /** 彈體材質：scale 固定 1（執行期素材已整理為目標尺寸），碰撞體另由呼叫端設定 */
+  private applyBulletTexture(b: Phaser.Physics.Arcade.Image, artKey: string, fallbackKey: string): void {
+    b.setTexture(this.textures.exists(artKey) ? artKey : fallbackKey);
+    b.setScale(1);
+  }
+
+  /** 無碰撞視覺特效：不遮擋重要物件；暫停即停；結算/重玩時由 cleanupEffects 清理 */
+  private spawnEffect(key: string, x: number, y: number, size: number, kind: 'hit' | 'burst'): void {
+    if (this.reducedMotion || !this.textures.exists(key)) return;
+    const img = this.add.image(x, y, key).setDepth(kind === 'burst' ? 6 : 7);
+    const from = size / img.width;
+    img.setScale(from);
+    img.setAlpha(kind === 'burst' ? 0.95 : 1);
+    this.effects.add(img);
+    this.tweens.add({
+      targets: img,
+      scale: from * (kind === 'burst' ? 1.35 : 1.15),
+      alpha: 0,
+      duration: kind === 'burst' ? 300 : 170,
+      ease: 'Quad.easeOut',
+      onComplete: () => { this.effects.delete(img); img.destroy(); },
+    });
+  }
+
+  private spawnHitSpark(x: number, y: number): void {
+    this.spawnEffect('art-hit-spark', x, y, 32, 'hit');
+  }
+
+  private spawnEnemyBurst(x: number, y: number): void {
+    this.spawnEffect('art-enemy-burst', x, y, 64, 'burst');
+  }
+
+  private cleanupEffects(): void {
+    for (const obj of [...this.effects]) {
+      this.tweens.killTweensOf(obj);
+      obj.destroy();
+    }
+    this.effects.clear();
   }
 
   private onEnemyBulletHitPlayer(b: Phaser.Physics.Arcade.Image): void {
@@ -437,16 +486,22 @@ export class GameScene extends Phaser.Scene {
   private onBulletHit(bullet: Phaser.Physics.Arcade.Image, enemy: EnemySprite): void {
     if (!this.isFighting) return;
     if (!bullet.active || !enemy.active || enemy.settled) return;
+    const hitX = bullet.x;
+    const hitY = bullet.y;
     bullet.destroy();
     if (this.run.elapsedMs - enemy.enteredAt < 1) return;
     enemy.hp -= 1;
+    const ex = enemy.x;
+    const ey = enemy.y;
     if (enemy.hp <= 0) {
       enemy.settled = true;
       this.run.addKill(enemy.def.score);
       if (enemy.hasWarnSign) { this.setWarnSign(enemy, false); }
       this.warnQuota.release(enemy.uid);
       enemy.destroy();
+      this.spawnEnemyBurst(ex, ey);
     } else {
+      this.spawnHitSpark(hitX, hitY);
       enemy.setTint(0xffffff);
       const base = HAZARD_KINDS[enemy.def.kindId].palette.base;
       this.time.delayedCall(80, () => { if (enemy.active) enemy.setTint(base); });
@@ -526,6 +581,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.bullets.clear(true, true);
     this.enemyBullets.clear(true, true);
+    this.cleanupEffects();
     for (const icon of [...this.warnIcons.keys()]) icon.destroy();
     this.warnIcons.clear();
     this.warnIconOf.clear();

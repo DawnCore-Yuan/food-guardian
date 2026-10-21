@@ -2,36 +2,29 @@
   "note": "D 階段第一版角色素材。概念風格參考 docs/art-direction/，角色由曉杰以 ChatGPT 生成。整理：Hermione（Canvas 等比縮放，未拉伸）。",
   "processed": "bbox 裁切後等比縮放並置中於目標畫布，透明背景保留",
   "assets": [
-    {
-      "file": "public/assets/sprites/player.png",
-      "source": "docs/art-source/player-source.png",
-      "display": "64x40",
-      "orientation": "right"
-    },
-    {
-      "file": "public/assets/sprites/enemies/aflatoxin.png",
-      "source": "docs/art-source/enemy-aflatoxin-source.png",
-      "display": "72x72",
-      "orientation": "none"
-    },
-    {
-      "file": "public/assets/sprites/enemies/sulfur-dioxide-excess.png",
-      "source": "docs/art-source/enemy-sulfur-dioxide-excess-source.png",
-      "display": "88x64",
-      "orientation": "left"
-    },
-    {
-      "file": "public/assets/sprites/enemies/salmonella.png",
-      "source": "docs/art-source/enemy-salmonella-source.png",
-      "display": "96x48",
-      "orientation": "left (flagella right)"
-    },
-    {
-      "file": "public/assets/sprites/enemies/s-aureus.png",
-      "source": "docs/art-source/enemy-s-aureus-source.png",
-      "display": "80x80",
-      "orientation": "none"
-    }
+    { "file": "public/assets/sprites/player.png", "source": "docs/art-source/player-source.png", "display": "64x40", "orientation": "right" },
+    { "file": "public/assets/sprites/enemies/aflatoxin.png", "source": "docs/art-source/enemy-aflatoxin-source.png", "display": "72x72", "orientation": "none" },
+    { "file": "public/assets/sprites/enemies/sulfur-dioxide-excess.png", "source": "docs/art-source/enemy-sulfur-dioxide-excess-source.png", "display": "88x64", "orientation": "left" },
+    { "file": "public/assets/sprites/enemies/salmonella.png", "source": "docs/art-source/enemy-salmonella-source.png", "display": "96x48", "orientation": "left (flagella right)" },
+    { "file": "public/assets/sprites/enemies/s-aureus.png", "source": "docs/art-source/enemy-s-aureus-source.png", "display": "80x80", "orientation": "none" }
   ],
+  "batch2": {
+    "note": "第二批：背景、彈體、特效。並排預覽見 artifacts/d2-lineup.png；驗收紀錄見 docs/D-ART-ACCEPTANCE.md",
+    "background": {
+      "file": "public/assets/sprites/bg-factory.png",
+      "source": "docs/art-source/bg-factory-source.png",
+      "sourceSize": "1672x941",
+      "runtimeSize": "1280x720",
+      "scaleApplied": 0.7656,
+      "opaque": true,
+      "tiling": "NOT VERIFIED — 靜態鋪底，不做循環。左右邊緣平均色差 13.7/255（約 5%），不足以證明可無縫拼接。"
+    },
+    "assets": [
+      { "file": "public/assets/sprites/player-bullet.png", "source": "docs/art-source/player-bullet-source.png", "display": "20x8", "body": "20x8 offset 0,0", "orientation": "right" },
+      { "file": "public/assets/sprites/enemy-bullet.png", "source": "docs/art-source/enemy-bullet-source.png", "display": "12x12", "body": "12x12 offset 0,0", "orientation": "none" },
+      { "file": "public/assets/sprites/hit-spark.png", "source": "docs/art-source/hit-spark-source.png", "display": "32x32", "collision": "none" },
+      { "file": "public/assets/sprites/enemy-burst.png", "source": "docs/art-source/enemy-burst-source.png", "display": "64x64", "collision": "none" }
+    ]
+  },
   "license": "曉杰提供之 AI 生成原創素材；專案內使用。"
 }

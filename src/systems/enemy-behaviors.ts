@@ -89,12 +89,20 @@ function updateWaveAccel(e: EnemyBody, _dt: number, quota: WarnQuota, host: Beha
       e.phase = 'waiting';
     }
   }
-  if (e.phase === 'waiting' && quota.tryAcquire(e.uid)) {
-    e.phase = 'warning';
-    e.phaseT = 0;
-    e.warnStartMs = e.elapsedMs;
-    host.setWarnSign(e, true);
-    e.hasWarnSign = true;
+  if (e.phase === 'waiting') {
+    // 延後特殊行為，但維持正常巡航（安全移動）
+    e.setVelocityX(-e.def.speed);
+    const tw = e.elapsedMs / period * Math.PI * 2;
+    const yw = e.baseY + Math.sin(tw) * amp;
+    e.body!.position.y = yw - e.body!.halfHeight;
+    e.y = yw;
+    if (quota.tryAcquire(e.uid)) {
+      e.phase = 'warning';
+      e.phaseT = 0;
+      e.warnStartMs = e.elapsedMs;
+      host.setWarnSign(e, true);
+      e.hasWarnSign = true;
+    }
   }
   if (e.phase === 'enter') e.phase = 'cruise';
 }
@@ -129,12 +137,16 @@ function updateSlowShooter(e: EnemyBody, _dt: number, quota: WarnQuota, host: Be
       e.phase = 'waiting';
     }
   }
-  if (e.phase === 'waiting' && quota.tryAcquire(e.uid)) {
-    e.phase = 'warning';
-    e.phaseT = 0;
-    e.warnStartMs = e.elapsedMs;
-    host.setWarnSign(e, true);
-    e.hasWarnSign = true;
+  if (e.phase === 'waiting') {
+    // 延後特殊行為，但維持慢速巡航（安全移動）
+    e.setVelocityX(-e.def.speed);
+    if (quota.tryAcquire(e.uid)) {
+      e.phase = 'warning';
+      e.phaseT = 0;
+      e.warnStartMs = e.elapsedMs;
+      host.setWarnSign(e, true);
+      e.hasWarnSign = true;
+    }
   }
 }
 
@@ -212,11 +224,17 @@ function updateLaneShift(e: EnemyBody, _dt: number, quota: WarnQuota, host: Beha
       e.phase = 'waiting';
     }
   }
-  if (e.phase === 'waiting' && quota.tryAcquire(e.uid)) {
-    e.phase = 'warning';
-    e.phaseT = 0;
-    e.warnStartMs = e.elapsedMs;
-    host.setWarnSign(e, true);
-    e.hasWarnSign = true;
+  if (e.phase === 'waiting') {
+    // 延後換線行為，維持水平巡航（不停死）
+    e.setVelocityX(-e.def.speed);
+    e.setVelocity(0, 0);
+    e.setVelocityX(-e.def.speed);
+    if (quota.tryAcquire(e.uid)) {
+      e.phase = 'warning';
+      e.phaseT = 0;
+      e.warnStartMs = e.elapsedMs;
+      host.setWarnSign(e, true);
+      e.hasWarnSign = true;
+    }
   }
 }

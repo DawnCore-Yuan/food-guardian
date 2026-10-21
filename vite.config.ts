@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import { resolve } from 'node:path';
 
 /**
  * 測試掛鉤條件：只在 serve（dev server）且非 preview 時為 true；
@@ -11,11 +12,18 @@ export default defineConfig(({ command, isPreview }) => {
     base: './',
     define: {
       __DEV_HOOK__: JSON.stringify(devHook),
+      // 建置識別：讓診斷頁能顯示實際載入的是哪一次建置
+      __BUILD_ID__: JSON.stringify(new Date().toISOString()),
     },
     build: {
       target: 'es2022',
       assetsInlineLimit: 0,
       rollupOptions: {
+        // 兩個入口：遊戲主頁 + 音訊診斷頁（共用同一份 AudioManager 原始碼）
+        input: {
+          main: resolve(__dirname, 'index.html'),
+          'audio-diagnostic': resolve(__dirname, 'audio-diagnostic.html'),
+        },
         output: {
           manualChunks: { phaser: ['phaser'] },
         },

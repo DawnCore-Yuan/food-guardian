@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>音訊診斷（診斷用，非遊戲）</title>
+<style>
+  body { font-family: -apple-system, "Noto Sans TC", sans-serif; background:#102a3a; color:#eaf4fb; margin:0; padding:24px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  p.note { color:#9fc3d6; font-size:13px; margin:0 0 20px; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+  button { font-size:18px; padding:14px 22px; border-radius:12px; border:2px solid #7fdffc;
+           background:#16334a; color:#fff; font-weight:700; cursor:pointer; min-height:56px; }
+  button:active { background:#1d3b56; }
+  button.alt { border-color:#46d17a; }
+  table { border-collapse:collapse; font-size:14px; width:100%; max-width:760px; }
+  td { border-bottom:1px solid #1d3b56; padding:6px 8px; vertical-align:top; }
+  td.k { color:#9fc3d6; width:210px; }
+  code { color:#ffe6a3; }
+</style>
+</head>
+<body>
+<h1>音訊診斷</h1>
+<p class="note">診斷用頁面，不接入正式遊戲。請依序點擊：先「1. 原生對照音」，再「2. 遊戲 AudioManager 測試音」。兩者不要同時播放。</p>
+
+<div class="row">
+  <button id="native" class="alt">1. 原生對照音（osc → gain → destination）</button>
+  <button id="managed">2. 遊戲 AudioManager 測試音</button>
+</div>
+
+<table id="diag">
+  <tr><td class="k">診斷頁建置識別</td><td><code id="build">—</code></td></tr>
+  <tr><td class="k">AudioManager 載入</td><td><code id="amLoad">尚未測試</code></td></tr>
+  <tr><td class="k">soundOn（localStorage）</td><td><code id="soundOn">—</code></td></tr>
+  <tr><td class="k">診斷 Context.state</td><td><code id="ctxState">—</code></td></tr>
+  <tr><td class="k">currentTime 是否推進</td><td><code id="ctxTime">—</code></td></tr>
+  <tr><td class="k">診斷 master gain</td><td><code id="masterGain">—</code></td></tr>
+  <tr><td class="k">resume 結果</td><td><code id="resume">—</code></td></tr>
+  <tr><td class="k">最近一次播放</td><td><code id="lastPlay">—</code></td></tr>
+  <tr><td class="k">OfflineAudioContext（原生路徑）</td><td><code id="offlineNative">檢查中…</code></td></tr>
+  <tr><td class="k">OfflineAudioContext（AudioManager 路徑）</td><td><code id="offlineAM">待 AudioManager 載入後執行</code></td></tr>
+</table>
+
+<script type="module" src="/src/audio-diagnostic.ts"></script>
+</body>
+</html>

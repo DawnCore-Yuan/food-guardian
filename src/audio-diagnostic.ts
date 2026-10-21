@@ -60,7 +60,7 @@ function clearManagedFields(): void {
   set('masterGain', '—');
   set('resume', '—');
   set('lastPlay', '—');
-  set('offlineAM', '測試中…');
+  set('offlineAM', '未實作');
 }
 
 // ── 1. 原生對照音：最小 oscillator → gain → destination ──────
@@ -88,13 +88,36 @@ $('managed').addEventListener('click', () => {
   clearManagedFields();
   try {
     audio.unlock();
-    void audio.whenReady().then((state) => {
+    void audio.whenReady().then(() => {
       audio.setSuspended(false);
       set('amLoad', '成功（已匯入同一份 AudioManager）');
-      set('ctxState', audio.state());
-      set('resume', (audio.hasResumeFailed() ? 'failed' : 'ok') + '（' + state + '）');
-      audio.play('shoot');
-      set('lastPlay', 'AudioManager "shoot" 已請求（API 排程成功 ≠ 聽到聲音）');
+
+      // 顯示 AudioManager「自己的」Context 快照，不與原生對照 Context 混用
+      const before = audio.debugSnapshot();
+      set('ctxState', before.state + (before.hasCtx ? '' : '（尚未建立）'));
+      set('masterGain', before.masterGain === null ? 'n/a' : String(before.masterGain));
+      set('resume', (before.resumeFailed ? 'failed' : 'ok') + '｜suspended=' + before.suspended + '｜soundOn=' + before.enabled);
+      // currentTime 一律直接讀 AudioManager 自己的 Context，失敗就顯示具體錯誤
+      const t0 = before.currentTime;
+      set('ctxTime', '量測中（t0=' + t0.toFixed(3) + '）');
+      setTimeout(() => {
+        try {
+          const s = audio.debugSnapshot();
+          const dt = s.currentTime - t0;
+          set('ctxTime', s.hasCtx
+            ? (dt > 0
+              ? ('推進 ' + dt.toFixed(3) + 's（' + t0.toFixed(3) + ' → ' + s.currentTime.toFixed(3) + '）')
+              : ('未推進（' + t0.toFixed(3) + ' → ' + s.currentTime.toFixed(3) + '）'))
+            : '錯誤：AudioManager 沒有 Context');
+          set('masterGain', s.masterGain === null ? '錯誤：沒有 master GainNode' : String(s.masterGain));
+        } catch (e) {
+          set('ctxTime', '讀取失敗：' + (e instanceof Error ? e.message : String(e)));
+        }
+      }, 400);
+
+      // 走同一條 play 路徑，但回報實際結果與提前返回原因
+      const result = audio.verbosePlay('shoot');
+      set('lastPlay', result);
     });
   } catch (e) {
     set('amLoad', '失敗：' + (e instanceof Error ? e.message : String(e)));
@@ -140,3 +163,22 @@ offlineCheck().then((r) => {
     ? (r.peak > 0.01 ? ('原生路徑有波形，peak=' + r.peak.toFixed(3) + '，非零樣本=' + r.nonzero) : '原生路徑波形為 0')
     : '不支援或失敗（原生路徑）');
 });
+
+
+// ── 手動同步雙請求（供離線／自動化驗證用；不改變遊戲行為） ──
+// 在「同一個同步呼叫」內連續兩次請求，記錄 AudioManager 自己的 currentTime 差
+(window as unknown as { __diagTwice?: () => unknown }).__diagTwice = () => {
+  const a = audio.debugSnapshot();
+  const r1 = audio.verbosePlay('shoot');
+  const b = audio.debugSnapshot();
+  const r2 = audio.verbosePlay('shoot');
+  const c = audio.debugSnapshot();
+  return {
+    t1: a.currentTime,
+    result1: r1,
+    t2: b.currentTime,
+    deltaMs: (b.currentTime - a.currentTime) * 1000,
+    result2: r2,
+    t3: c.currentTime,
+  };
+};

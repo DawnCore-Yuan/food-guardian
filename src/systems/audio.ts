@@ -42,11 +42,13 @@ export class AudioManager {
   private voices: Voice[] = [];
   private enabled = true;
   private suspended = false;
-  private lastShootAt = 0;
-  private lastHitAt = 0;
-  private lastWarnAt = 0;
+  // -1 代表「尚未播放過」，與時間 0 區分
+  private lastShootAt = -1;
+  private lastHitAt = -1;
+  private lastWarnAt = -1;
   /** resume() 曾失敗（iOS 手勢失效或系統中斷）；下一次手勢會再試 */
   private resumeFailed = false;
+  private _lastResult = '';
 
   constructor() {
     this.enabled = this.readPref();
@@ -155,6 +157,68 @@ export class AudioManager {
   /** resume 是否曾失敗（僅供除錯判斷，不影響玩法） */
   hasResumeFailed(): boolean { return this.resumeFailed; }
 
+  /**
+   * 唯讀診斷快照：只讀，不改變任何播放狀態。
+   * 診斷頁用它顯示 AudioManager 自己的 Context，不與原生對照 Context 混用。
+   */
+  debugSnapshot(): {
+    enabled: boolean;
+    suspended: boolean;
+    resumeFailed: boolean;
+    hasCtx: boolean;
+    state: string;
+    currentTime: number;
+    masterGain: number | null;
+    masterConnected: boolean;
+    voices: number;
+  } {
+    const ctx = this.ctx;
+    return {
+      enabled: this.enabled,
+      suspended: this.suspended,
+      resumeFailed: this.resumeFailed,
+      hasCtx: !!ctx,
+      state: ctx ? ctx.state : 'none',
+      currentTime: ctx ? ctx.currentTime : 0,
+      masterGain: this.master ? this.master.gain.value : null,
+      masterConnected: !!this.master,
+      voices: this.voices.length,
+    };
+  }
+
+  /** 診斷用：回傳最近一次 play() 的判定結果（不改變行為） */
+  lastPlayResult(): string {
+    return this._lastResult || 'none';
+  }
+
+  /** 診斷頁專用的公開測試入口：走完全相同的 play() 路徑，但回報結果與原因 */
+  verbosePlay(kind: SfxName): string {
+    if (!this.enabled) { this._lastResult = 'blocked: muted'; return this._lastResult; }
+    if (this.suspended) { this._lastResult = 'blocked: app-suspended'; return this._lastResult; }
+    const ctx = this.ctx;
+    if (!ctx) { this._lastResult = 'blocked: no-ctx（尚未在點擊中 unlock）'; return this._lastResult; }
+    if (!this.master) { this._lastResult = 'blocked: no-master'; return this._lastResult; }
+    if (ctx.state !== 'running') { this._lastResult = 'blocked: ctx-' + ctx.state; return this._lastResult; }
+    const now = ctx.currentTime * 1000;
+    if (this.throttled(kind, now)) { this._lastResult = 'blocked: throttled'; return this._lastResult; }
+    if (this.voices.length >= MAX_VOICES) {
+      const weakest = this.voices.reduce((a, b) => (a.priority <= b.priority ? a : b));
+      if (weakest.priority >= PRIORITY[kind]) { this._lastResult = 'blocked: dropped-capacity'; return this._lastResult; }
+      this.voices = this.voices.filter((v) => v !== weakest);
+      this.kill(weakest);
+    }
+    const voice = this.spawn(ctx, this.master, kind);
+    if (!voice) { this._lastResult = 'spawn-failed'; return this._lastResult; }
+    this.markPlayed(kind, now);
+    this.voices.push(voice);
+    const lifeMs = (voice.stopAt - ctx.currentTime) * 1000;
+    window.setTimeout(() => {
+      this.voices = this.voices.filter((v) => v !== voice);
+    }, Math.max(0, lifeMs) + 60);
+    this._lastResult = 'scheduled（source 開始 ' + voice.nodes.length + ' 個節點）';
+    return this._lastResult;
+  }
+
   private async resume(): Promise<void> {
     if (!this.ctx) return this.unlock();
     try {
@@ -184,19 +248,26 @@ export class AudioManager {
   }
 
   // ── 節流 ────────────────────────────────────────────────
+  /**
+   * 節流：以 AudioContext.currentTime（同一時間軸）判斷。
+   * 規則：
+   *   1. 沒有歷史紀錄 → 直接允許（首次請求不應被擋）
+   *   2. 間隔足夠 → 允許
+   *   3. 被拒絕時**不更新**最後時間，避免把排程時間往前推
+   * 只有「真的排程出去」的請求才呼叫 markPlayed() 記錄時間。
+   */
   private throttled(kind: SfxName, now: number): boolean {
-    // 以「毫秒級間隔」避免密集同類音效疊成噪音
-    if (kind === 'shoot') {
-      if (now - this.lastShootAt < 55) return true;
-      this.lastShootAt = now;
-    } else if (kind === 'hit') {
-      if (now - this.lastHitAt < 45) return true;
-      this.lastHitAt = now;
-    } else if (kind === 'warn') {
-      if (now - this.lastWarnAt < 220) return true;
-      this.lastWarnAt = now;
-    }
+    if (kind === 'shoot') return this.lastShootAt !== -1 && now - this.lastShootAt < 55;
+    if (kind === 'hit') return this.lastHitAt !== -1 && now - this.lastHitAt < 45;
+    if (kind === 'warn') return this.lastWarnAt !== -1 && now - this.lastWarnAt < 220;
     return false;
+  }
+
+  /** 排程成功後才記錄時間（被節流擋下的請求不記錄） */
+  private markPlayed(kind: SfxName, now: number): void {
+    if (kind === 'shoot') this.lastShootAt = now;
+    else if (kind === 'hit') this.lastHitAt = now;
+    else if (kind === 'warn') this.lastWarnAt = now;
   }
 
   // ── 播放 ────────────────────────────────────────────────
@@ -230,6 +301,7 @@ export class AudioManager {
 
     const voice = this.spawn(ctx, master, kind);
     if (!voice) return;
+    this.markPlayed(kind, now);
     this.voices.push(voice);
 
     const lifeMs = (voice.stopAt - ctx.currentTime) * 1000;

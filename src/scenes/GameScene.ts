@@ -236,14 +236,16 @@ export class GameScene extends Phaser.Scene {
     const def = ENEMIES[defId];
     const texKey = def.id === 'germ' ? TEX.germ : def.id === 'cloud' ? TEX.cloud : TEX.shard;
     const e = this.physics.add.sprite(def.spawnX, y, texKey) as EnemySprite;
+    // 先加入群組（群組會套用 defaults 覆寫 velocity / allowGravity），再設定個別屬性
+    this.enemies.add(e);
     e.body!.setSize(def.body.w, def.body.h);
     (e.body as Phaser.Physics.Arcade.Body).allowGravity = false;
+    e.setCollideWorldBounds(false);
     e.setVelocityX(-def.speed);
     e.defId = defId;
     e.hp = def.hp;
     e.settled = false;
     e.enteredAt = this.run.elapsedMs;
-    this.enemies.add(e);
   }
 
   /** 非致命命中不改 settled；只有死亡才結算一次（規格 §6.2） */

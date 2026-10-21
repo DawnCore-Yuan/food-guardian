@@ -1,0 +1,23 @@
+{
+  "name": "food-guardian",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20 <25"
+  },
+  "dependencies": {
+    "phaser": "4.2.1"
+  },
+  "devDependencies": {
+    "playwright-core": "1.63.0",
+    "typescript": "5.7.2",
+    "vite": "6.3.1"
+  }
+}

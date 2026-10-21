@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>食安防衛隊</title>
+    <style>
+      :root { color-scheme: light; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #eaf4fb; }
+      body {
+        font-family: "Noto Sans TC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        -webkit-tap-highlight-color: transparent;
+        overscroll-behavior: none;
+      }
+      #app { position: fixed; inset: 0; }
+      canvas { display: block; margin: 0 auto; touch-action: none; }
+      #ui-layer {
+        position: fixed; inset: 0; pointer-events: none;
+        padding: env(safe-area-inset-top) env(safe-area-inset-right)
+                 env(safe-area-inset-bottom) env(safe-area-inset-left);
+      }
+      #ui-layer button { pointer-events: auto; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="ui-layer"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -57,7 +57,7 @@ export class MenuScene extends Phaser.Scene {
       const on = audio.isEnabled();
       sndLabel.setText(on ? '音效 開' : '音效 關');
       sndPlate.clear();
-      const hw = boxW / 2, hh = hitH / 2;
+      const hw = Math.max(boxW, labelW + hitH * 0.9) / 2, hh = hitH / 2;
       sndPlate.fillStyle(0x16334a, on ? 0.92 : 0.6).fillRoundedRect(-hw, -hh, boxW, hitH, hitH / 2);
       sndPlate.lineStyle(2, 0x7fdffc, on ? 0.9 : 0.4).strokeRoundedRect(-hw, -hh, boxW, hitH, hitH / 2);
       if (!on) {
@@ -69,13 +69,17 @@ export class MenuScene extends Phaser.Scene {
     };
     // 命中區需求 ≥48 CSS px：以 canvas 實際顯示比例回推邏輯尺寸
     const cssScale = (this.game.canvas.getBoundingClientRect().width / this.scale.width) || 1;
-    const hitH = Math.min(120, Math.max(56, Math.ceil(48 / Math.max(0.01, cssScale)) + 8));
+    const hitH = Math.min(140, Math.max(72, Math.ceil(48 / Math.max(0.01, cssScale)) + 8));
     const boxW = hitH * 2.4;
     const sndPlate = this.add.graphics().setName('menu-snd');
-    const sndLabel = this.add.text(0, 0, '', {
+    // 文字：目前字級的 2 倍（bold、白色、置中）；底板寬度依文字實際寬度決定
+    const baseFont = Math.round(hitH * 0.34);
+    const sndFont = baseFont * 2;
+    const sndLabel = this.add.text(0, 0, '音效 開', {
       fontFamily: '"Noto Sans TC", sans-serif', fontStyle: 'bold',
-      fontSize: String(Math.round(hitH * 0.34)), color: '#ffffff',
-    }).setOrigin(0.5);
+      fontSize: String(sndFont), color: '#ffffff',
+    }).setOrigin(0.5).setName('menu-snd-label');
+    const labelW = sndLabel.width;
     this.add.container(width - boxW / 2 - 20, height - hitH / 2 - 40, [sndPlate, sndLabel]).setName('menu-snd-box');
     // 命中區至少 48 CSS px：以 canvas 邏輯座標換算實際 CSS 比例
     const hitBox = this.add.zone(width - boxW / 2 - 20, height - hitH / 2 - 40, boxW, hitH).setOrigin(0.5).setInteractive({ useHandCursor: true });

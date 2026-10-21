@@ -237,8 +237,14 @@ export class HudScene extends Phaser.Scene {
 
     // 時間（等寬）
     this.timeText.setFontSize(Math.round(barH * 0.36));
-    const timeW = this.timeText.width;
-    const timeX = pauseX - pauseR - 14 - timeW / 2;
+    // 時間欄位：以「最寬可能字串」量測，避免數字變動時寬度不足被裁切
+    const sample = this.timeText.text;
+    this.timeText.setText('00:00 / 03:00');
+    const timeW = Math.ceil(this.timeText.width) + 8;
+    this.timeText.setText(sample);
+    const timeGap = 10;
+    const timeRight = pauseX - pauseR - 14;
+    const timeX = timeRight - timeW / 2;
 
     // 愛心：固定五格
     const heartSize = Math.round(barH * 0.5);
@@ -261,7 +267,8 @@ export class HudScene extends Phaser.Scene {
 
     // LOGO 與進度條的可用空間
     const fixedLeft = m + heartSize * 0.2 + heartsW + divPad * 2 + scoreReserve + divPad;
-    const rightLimit = timeX - timeW / 2 - 14;
+    // 右側預留：時間欄位左緣 → 再留 10px → 進度條
+    const rightLimit = timeX - timeW / 2 - timeGap;
     let avail = Math.max(120, rightLimit - fixedLeft);
 
     // LOGO 高度約 barH * 0.86，等比

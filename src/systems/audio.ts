@@ -22,8 +22,6 @@ interface Voice {
 }
 
 const MAX_VOICES = 8;
-/** 同時活動的聲源節點上限（Oscillator + BufferSource 合計），避免疊音爆量 */
-const MAX_SOURCES = 24;
 
 const PRIORITY: Record<SfxName, number> = {
   shoot: 0,
@@ -51,8 +49,6 @@ export class AudioManager {
   /** resume() 曾失敗（iOS 手勢失效或系統中斷）；下一次手勢會再試 */
   private resumeFailed = false;
   private _lastResult = '';
-  /** 目前在生命週期內的聲源節點數（建立時 +1、結束時 -1） */
-  private activeSources = 0;
 
   constructor() {
     this.enabled = this.readPref();
@@ -415,29 +411,6 @@ export class AudioManager {
     }
   }
 
-  /** 聲源計數：排程時 +1，結束時（onended 或 stop）皆會 -1，只減一次 */
-  private trackSource(node: AudioScheduledSourceNode, startAt: number, stopAt: number): void {
-    const key = '__counted';
-    (node as unknown as Record<string, boolean>)[key] = true;
-    this.activeSources += 1;
-    let released = false;
-    const release = (): void => {
-      if (released) return;
-      released = true;
-      (node as unknown as Record<string, boolean>)[key] = false;
-      this.activeSources = Math.max(0, this.activeSources - 1);
-    };
-    node.onended = release;
-    // 保險：即使 onended 未觸發，也在結束後釋放
-    const ms = Math.max(0, (stopAt - startAt) * 1000) + 120;
-    window.setTimeout(release, ms);
-  }
-
-  /** 是否還有聲源容量可容納 need 個節點 */
-  private hasSourceRoom(need: number): boolean {
-    return this.activeSources + need <= MAX_SOURCES;
-  }
-
   private kill(v: Voice): void {
     try {
       v.gain.gain.cancelScheduledValues(0);
@@ -448,17 +421,7 @@ export class AudioManager {
   }
 
   /** 每個音效都是一個短包絡；不放循環、不長尾 */
-  /** 各音效需要的聲源節點數（與 spawn 中的呼叫次數對應） */
-  private static readonly SOURCE_NEED: Record<SfxName, number> = {
-    shoot: 2, hit: 2, kill: 3, hurt: 2, warn: 2, ui: 1, win: 4, lose: 3,
-  };
-
   private spawn(ctx: AudioContext, out: GainNode, kind: SfxName): Voice | null {
-    // 容量不足就先不放：避免只播出「半個和弦」或不完整的疊音
-    if (!this.hasSourceRoom(AudioManager.SOURCE_NEED[kind])) {
-      this._lastResult = 'blocked: source-capacity';
-      return null;
-    }
     const t = ctx.currentTime;
     // voice 增益層保留給 stopAll 歸零用；初值必須是 1，
     // 否則（原本為 0 且從未排程）會把整條鏈乘成 0 → 完全無聲。
@@ -480,15 +443,9 @@ export class AudioManager {
       g.gain.linearRampToValueAtTime(peak, t + delay + 0.012);      // 淡入，避免喀聲
       g.gain.exponentialRampToValueAtTime(0.0001, t + delay + dur);  // 淡出
       o.connect(g); g.connect(gain);
-      this.trackSource(o, t + delay, t + delay + dur + 0.02);
+      o.start(t + delay);
+      o.stop(t + delay + dur + 0.02);
       nodes.push(o);
-    };
-
-    // 輕泛音：與主音同時起音，音量很低，只為增加層次
-    const overtone = (
-      type: OscillatorType, f0: number, f1: number, dur: number, peak: number, delay = 0,
-    ): void => {
-      tone(type, f0, f1, dur, peak, delay);
     };
 
     const noiseHit = (dur: number, peak: number, hp = 800): void => {
@@ -506,68 +463,60 @@ export class AudioManager {
       g.gain.linearRampToValueAtTime(peak, t + 0.008);
       g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
       src.connect(filt); filt.connect(g); g.connect(gain);
-      this.trackSource(src, t, t + dur);
+      src.start(t);
       nodes.push(src);
     };
 
     let end = 0;
     switch (kind) {
-      case 'shoot': {
-        // 短促滑音 + 很輕的泛音（不同波形），維持低音量；不做和弦
-        tone('triangle', 760, 1180, 0.075, 0.095);
-        overtone('sine', 1520, 2360, 0.05, 0.022);
-        end = 0.10;
+      case 'shoot': {         // 輕巧「啾」：短上滑，低音量
+        tone('triangle', 620, 980, 0.085, 0.10);
+        end = 0.11;
         break;
       }
-      case 'hit': {
-        // 短敲擊 + 少量噪聲，與射擊（滑音）明顯不同
-        noiseHit(0.045, 0.085, 1800);
-        tone('square', 300, 180, 0.045, 0.05);
-        end = 0.06;
+      case 'hit': {           // 短促「噗／嗒」：中頻短噪 + 低音點
+        noiseHit(0.055, 0.10, 1400);
+        tone('square', 420, 260, 0.05, 0.045);
+        end = 0.07;
         break;
       }
-      case 'kill': {
-        // 低音衝擊 + 短爆散；力度靠低頻與噪聲，不靠大音量
-        tone('sine', 220, 70, 0.22, 0.17);
-        overtone('triangle', 110, 55, 0.18, 0.06);
-        noiseHit(0.11, 0.06, 500);
-        end = 0.26;
+      case 'kill': {          // 柔和「啵」：低頻下滑 + 小噪聲
+        tone('sine', 300, 90, 0.24, 0.16);
+        noiseHit(0.09, 0.05, 600);
+        end = 0.27;
         break;
       }
-      case 'hurt': {
-        // 清楚的雙音下行（避開擊破的低頻衝擊感）
-        tone('triangle', 520, 520, 0.10, 0.13);
-        tone('triangle', 392, 392, 0.16, 0.12, 0.10);
+      case 'hurt': {          // 警示撞擊：兩個下行音，辨識度高於射擊
+        tone('sawtooth', 330, 180, 0.16, 0.13);
+        tone('square', 180, 110, 0.20, 0.10, 0.06);
+        noiseHit(0.07, 0.07, 300);
         end = 0.28;
         break;
       }
-      case 'warn': {
-        // 簡短易辨識：兩音上跳，不密集
-        tone('square', 660, 660, 0.055, 0.07);
-        tone('square', 880, 880, 0.055, 0.06, 0.07);
-        end = 0.14;
+      case 'warn': {          // 短電子提示：兩音上跳
+        tone('square', 720, 720, 0.07, 0.075);
+        tone('square', 960, 960, 0.07, 0.065, 0.08);
+        end = 0.17;
         break;
       }
-      case 'ui': {
-        tone('triangle', 820, 640, 0.05, 0.07);
-        end = 0.06;
+      case 'ui': {            // 輕微「答」
+        tone('triangle', 880, 620, 0.06, 0.08);
+        end = 0.08;
         break;
       }
-      case 'win': {
-        // 短促明亮和弦（同時發聲，非旋律）
-        tone('triangle', 523, 523, 0.20, 0.10);
-        tone('triangle', 659, 659, 0.20, 0.09);
-        tone('triangle', 784, 784, 0.26, 0.09);
-        overtone('sine', 1046, 1046, 0.22, 0.05);
-        end = 0.30;
+      case 'win': {           // 明亮上行，約 0.7 秒
+        tone('triangle', 523, 523, 0.14, 0.12);
+        tone('triangle', 659, 659, 0.14, 0.12, 0.14);
+        tone('triangle', 784, 784, 0.18, 0.12, 0.28);
+        tone('triangle', 1046, 1046, 0.28, 0.10, 0.44);
+        end = 0.76;
         break;
       }
-      case 'lose': {
-        // 柔和低沉雙音
-        tone('sine', 330, 330, 0.26, 0.10);
-        tone('sine', 247, 247, 0.38, 0.095, 0.12);
-        overtone('sine', 165, 165, 0.36, 0.045, 0.12);
-        end = 0.52;
+      case 'lose': {          // 柔和下行，約 0.8 秒
+        tone('sine', 392, 392, 0.18, 0.11);
+        tone('sine', 330, 330, 0.18, 0.11, 0.18);
+        tone('sine', 262, 262, 0.34, 0.10, 0.36);
+        end = 0.74;
         break;
       }
     }

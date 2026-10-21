@@ -1,0 +1,33 @@
+# 網頁遊戲（食安防衛隊）｜區網預覽（Mac 端執行）
+# 用法（在 Mac 的遊戲 repo 目錄，也就是本檔所在位置）：
+#   docker compose -f compose.preview.yml up -d
+# 固定網址：http://192.168.1.20:5182/
+#
+# 注意：
+#   - Docker 名稱一律使用英文（web-game），中文只出現在文件標題。
+#   - 只在本機區網發布，不設反向代理、不綁公開網域。
+#   - dist 路徑相對於本 Compose 檔所在目錄；可用 FOOD_GUARDIAN_DIST 覆寫。
+#   - 首次啟動前必須先建置相對路徑版 dist：npm run build
+
+name: web-game
+
+services:
+  web:
+    image: nginx:stable-alpine
+    container_name: web-game
+    restart: unless-stopped
+    ports:
+      - "5182:80"
+    volumes:
+      - type: bind
+        source: ${FOOD_GUARDIAN_DIST:-./dist}
+        target: /usr/share/nginx/html
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./deploy/nginx-preview.conf
+        target: /etc/nginx/conf.d/default.conf
+        read_only: true
+        bind:
+          create_host_path: false

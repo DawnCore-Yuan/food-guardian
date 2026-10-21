@@ -1,0 +1,31 @@
+import { chromium } from 'playwright-core';
+const B = process.env.CDP ?? 'http://foodsky-test:9222';
+const URL0 = process.env.URL ?? 'http://openclaw-gateway:5181/';
+const OUT = 'artifacts/';
+const browser = await chromium.connectOverCDP(B);
+const ctx = browser.contexts()[0] ?? await browser.newContext();
+const page = await ctx.newPage();
+await page.setViewportSize({ width: 1200, height: 675 });
+await page.goto(URL0, { waitUntil: 'networkidle' });
+await page.waitForTimeout(1500);
+await page.screenshot({ path: OUT + 'lb-menu-desktop.png' });
+const canvas = await page.locator('canvas').boundingBox();
+// 點排行榜
+await page.mouse.click(canvas.x + canvas.width * 0.5, canvas.y + canvas.height * 0.705);
+await page.waitForTimeout(700);
+await page.screenshot({ path: OUT + 'lb-board-desktop.png' });
+console.log('scrim', await page.locator('.lb-scrim').count(), 'rows', await page.locator('.lb-table tbody tr').count(), 'badge', await page.locator('.lb-badge-mock').count());
+await page.getByRole('button', { name: '關閉' }).click();
+await page.waitForTimeout(300);
+// 手機橫向
+await page.setViewportSize({ width: 844, height: 390 });
+await page.waitForTimeout(600);
+await page.screenshot({ path: OUT + 'lb-menu-phone.png' });
+const c2 = await page.locator('canvas').boundingBox();
+await page.mouse.click(c2.x + c2.width * 0.5, c2.y + c2.height * 0.705);
+await page.waitForTimeout(700);
+await page.screenshot({ path: OUT + 'lb-board-phone.png' });
+const sizes = await page.$$eval('.lb-btn', (els) => els.map((e) => { const r = e.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; }));
+console.log('btn sizes', JSON.stringify(sizes));
+await page.close();
+await browser.close();

@@ -50,6 +50,8 @@ export function allowedVersions(): string[] {
 
 export function adminHeaders(): Record<string, string> {
   // service_role：只在 Edge Function 內使用，永遠不會送到瀏覽器
+  // Supabase Edge Runtime 預設注入這兩個值；不需要手動貼 service_role。
+  // 若之後想改用自訂秘密，可在 Edge Secrets 覆寫，但不要把值貼進聊天或前端。
   const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
   return {
     apikey: key,

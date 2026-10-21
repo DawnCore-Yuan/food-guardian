@@ -1,10 +1,14 @@
 // POST /functions/v1/leaderboard-start
-// 核發單局識別（ticket + token）。token 只在本回應出現一次，資料庫只存雜湊。
-import { allowedVersions, fail, ipHash, json, randomToken, restUrl, adminHeaders, sha256Hex } from '../_shared/helpers.ts';
+// 核發單局識別（ticket + token）。token 只在本回應出現一次，資料庫只存 SHA-256 雜湊。
+//
+// 身分與權限：關閉 Verify JWT 後，這個端點不驗證任何「使用者」，
+// 只靠 (a) 版本白名單 (b) 資料庫端限流（跨實例、伺服器時間）限制消耗。
+// CORS 與 anon key 只是讓瀏覽器能呼叫，不是身分驗證，也不是防作弊。
+import {
+  allowedVersions, adminHeaders, fail, ipHash, json, randomToken, restUrl, sha256Hex,
+} from '../_shared/helpers.ts';
 
-const TICKET_TTL_SEC = 20 * 60;      // 單局憑證 20 分鐘內有效（180 秒關卡 + 收尾 + 網路延遲）
-const IP_WINDOW_SEC = 10 * 60;       // 頻率窗
-const IP_MAX_TICKETS = 12;           // 同一來源 10 分鐘最多 12 局
+const TICKET_TTL_SEC = 20 * 60; // 單局憑證 20 分鐘（180 秒關卡＋暫停＋輸入暱稱＋網路延遲）
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return json({ ok: true });
@@ -22,16 +26,15 @@ Deno.serve(async (req: Request) => {
 
   try {
     const ip = await ipHash(req);
-    const since = new Date(Date.now() - IP_WINDOW_SEC * 1000).toISOString();
 
-    // 頻率限制（伺服器端計數，前端無法繞過）
-    const countRes = await fetch(
-      `${restUrl('run_tickets')}?ip_hash=eq.${ip}&issued_at=gte.${encodeURIComponent(since)}&select=id`,
-      { headers: { ...adminHeaders(), Prefer: 'count=exact', Range: '0-0' } },
-    );
-    const countHeader = countRes.headers.get('content-range') ?? '0-0/0';
-    const used = Number(countHeader.split('/')[1] ?? '0');
-    if (!Number.isFinite(used) || used >= IP_MAX_TICKETS) {
+    // 限流在資料庫內以伺服器時間計數，多個函式實例共用同一份狀態
+    const rl = await fetch(restUrl('rpc/leaderboard_rate_limited'), {
+      method: 'POST',
+      headers: adminHeaders(),
+      body: JSON.stringify({ p_ip_hash: ip, p_window_sec: 600, p_max_tickets: 12, p_max_submits: 20 }),
+    });
+    if (!rl.ok) return fail('server_error', '伺服器暫時無法處理', 500);
+    if (await rl.json() === true) {
       return fail('rate_limited', '本局開啟太頻繁，請稍後再試', 429);
     }
 

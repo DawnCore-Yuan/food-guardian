@@ -1,0 +1,31 @@
+import { chromium } from 'playwright-core';
+const browser = await chromium.connectOverCDP('http://foodsky-test:9222');
+const ctx = browser.contexts()[0] ?? await browser.newContext();
+const page = await ctx.newPage();
+page.on('pageerror', (e) => console.error('PAGEERROR', e.message));
+await page.setViewportSize({ width: 1200, height: 675 });
+await page.goto('http://openclaw-gateway:5180/', { waitUntil: 'load', timeout: 20000 });
+await page.waitForTimeout(2500);
+const box = await page.locator('canvas').boundingBox();
+await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.62);
+await page.waitForTimeout(2000);
+console.log('scenes', JSON.stringify(await page.evaluate(() => window.__FG_GAME__?.scene.scenes.map((s) => [s.scene.key, s.scene.isActive()]))));
+const st = await page.evaluate(() => {
+  const gs = window.__FG_GAME__?.scene.getScene('Game');
+  if (!gs) return { err: 'no Game scene' };
+  gs.run.elapsedMs = 180_000;
+  for (const e of [...gs.enemies.getChildren()]) e.destroy();
+  for (const b of [...gs.enemyBullets.getChildren()]) b.destroy();
+  return { elapsed: gs.run.elapsedMs, enemies: gs.enemies.countActive(true), bullets: gs.enemyBullets.countActive(true), level: gs.level?.id };
+});
+console.log('before', JSON.stringify(st));
+await page.waitForTimeout(2000);
+const after = await page.evaluate(() => {
+  const gs = window.__FG_GAME__.scene.getScene('Game');
+  return { phase: gs.run.phase, bonus: window.__FIN_CALLS__, co: window.__CO_CALLS__ };
+});
+console.log('after', JSON.stringify(after));
+console.log('hud overlay buttons', await page.locator('text=登錄排行榜').count());
+await page.screenshot({ path: 'artifacts/dbg-result.png' });
+await page.close();
+await browser.close();

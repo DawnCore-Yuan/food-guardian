@@ -81,7 +81,7 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5).setInteractive({ useHandCursor: true }).setName('menu-leaderboard-hit');
     lbHit.on('pointerup', () => this.openLeaderboard());
 
-    // 依輸入能力顯示：觸控尚未實作，明確標示
+    // 依輸入能力顯示操作說明（觸控與鍵盤皆已實作）
     const touch = typeof window !== 'undefined' && 'ontouchstart' in window;
     this.add.text(width / 2, height * 0.805, touch ? '手機請橫向遊玩：左側移動、右側按住射擊' : '鍵盤：WASD／方向鍵移動　Space／J 射擊', {
       fontFamily: '"Noto Sans TC", sans-serif', fontSize: '22px', color: '#5a8aa8',
@@ -138,7 +138,7 @@ export class MenuScene extends Phaser.Scene {
     // 版本說明：頁尾小字（原位置已移除，不重複顯示）
     // 以「底部安全邊距 + 自身高度」定位，而非固定百分比，避免手機橫向被裁切或與上一行重疊
     const footerSize = height < 480 ? 15 : 16;
-    const footer = this.add.text(width / 2, 0, 'C 階段｜180 秒｜四種敵人', {
+    const footer = this.add.text(width / 2, 0, '正式關卡｜180 秒｜四種敵人', {
       fontFamily: '"Noto Sans TC", sans-serif',
       fontSize: `${footerSize}px`,
       color: '#8aa9bd',

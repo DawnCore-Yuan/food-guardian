@@ -6,6 +6,11 @@ import { LeaderboardUI } from './ui';
  */
 let instance: LeaderboardUI | null = null;
 
+/** 目前這局的伺服器核發識別（還沒有票時回 null）；模擬模式亦回 null */
+export function currentTicketId(): string | null {
+  try { return leaderboard().currentTicketId(); } catch { return null; }
+}
+
 export function leaderboard(): LeaderboardUI {
   if (!instance) instance = new LeaderboardUI();
   return instance;

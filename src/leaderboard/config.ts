@@ -31,7 +31,7 @@ function readEnv(name: string): string {
 export function loadLeaderboardConfig(): LeaderboardConfig {
   const supabaseUrl = readEnv('VITE_LEADERBOARD_SUPABASE_URL').replace(/\/+$/, '');
   const supabaseAnonKey = readEnv('VITE_LEADERBOARD_SUPABASE_ANON_KEY');
-  const version = readEnv('VITE_LEADERBOARD_VERSION') || 'official-180s-v1';
+  const version = readEnv('VITE_LEADERBOARD_VERSION') || 'official-180s-v2';
   return {
     supabaseUrl,
     supabaseAnonKey,

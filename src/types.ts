@@ -27,7 +27,7 @@ export interface RunSnapshot {
   elapsedMs: number;
   kills: number;
   escapes: number;
-  phase: 'playing' | 'finishing' | 'won' | 'lost';
+  phase: 'playing' | 'won' | 'lost';
 }
 
 export interface RunResult {

@@ -10,7 +10,7 @@ interface HudState {
   score: number;
   elapsedMs: number;
   durationMs: number;
-  phase: 'playing' | 'finishing' | 'won' | 'lost';
+  phase: 'playing' | 'won' | 'lost';
 }
 
 /**
@@ -107,7 +107,7 @@ export class HudScene extends Phaser.Scene {
   private onHudUpdate(s: HudState): void {
     this.lastState = s;
     const p = Phaser.Math.Clamp(
-      s.phase === 'finishing' || s.phase === 'won' || s.phase === 'lost'
+      s.phase === 'won' || s.phase === 'lost'
         ? 1
         : s.elapsedMs / Math.max(1, s.durationMs),
       0, 1,
@@ -209,7 +209,7 @@ export class HudScene extends Phaser.Scene {
     });
     bar.add(this.sndHit);
 
-    // 收尾中提示（小字，避免 03:05 / 03:00）
+    // 保留欄位以相容既有版面；v2 已取消 finishing 期，因此永遠不顯示
     this.finishNote = this.add.text(0, 0, '收尾中', {
       fontFamily: '"Noto Sans TC", sans-serif', fontStyle: 'bold',
       fontSize: '18px', color: C.gold, stroke: C.navyStroke, strokeThickness: 3,
@@ -408,7 +408,7 @@ export class HudScene extends Phaser.Scene {
   private paintTime(s: HudState): void {
     const capped = Math.min(s.elapsedMs, s.durationMs);
     this.timeText.setText(`${fmt(capped)} / ${fmt(s.durationMs)}`);
-    this.finishNote.setVisible(s.phase === 'finishing');
+    this.finishNote.setVisible(false);
   }
 
   private paintProgress(p: number): void {
@@ -498,8 +498,9 @@ export class HudScene extends Phaser.Scene {
       fontFamily: '"Noto Sans TC", sans-serif', fontSize: '22px', color: isNew ? '#e76f51' : '#5a8aa8',
     }).setOrigin(0.5));
 
-    // 只有正式 180 秒關卡、且本局取得單局識別的結算才能登錄排行榜（規格 §2.8）
-    if (r.leaderboardEligible && r.runTicketId) {
+    // 資格由 GameScene 判定後隨結算事件送來（正式關卡／正常結算／模式／識別分開判定）；
+    // 模擬模式的 mock 識別只用於跑 UI 流程，送出仍標示模擬。
+    if (r.leaderboardEligible) {
       this.button(c, height / 2 + 90, '登錄排行榜', () => {
         this.openLeaderboardSubmit(r);
       }, '#24425c');

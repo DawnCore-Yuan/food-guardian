@@ -182,3 +182,43 @@ offlineCheck().then((r) => {
     t3: c.currentTime,
   };
 };
+
+// ── 3. AudioManager 內部固定對照音（同一 Context、經 master） ──
+const probeBtn = document.createElement('button');
+probeBtn.id = 'probeTone';
+probeBtn.textContent = '3. AudioManager 內部對照音（440Hz 經其 master）';
+document.querySelector('.row')?.appendChild(probeBtn);
+probeBtn.addEventListener('click', () => {
+  audio.unlock();
+  void audio.whenReady().then(() => {
+    audio.setSuspended(false);
+    set('amLoad', '成功（已匯入同一份 AudioManager）');
+    const r = audio.probeTone();
+    set('lastPlay', 'probeTone → ' + r);
+    const s = audio.debugSnapshot();
+    set('ctxState', s.state);
+    set('masterGain', s.masterGain === null ? 'n/a' : String(s.masterGain));
+  });
+});
+
+// ── 4. AudioManager 離線渲染：同一組聲源與包絡參數 ──────────
+const offlineBtn = document.createElement('button');
+offlineBtn.id = 'offlineBtn';
+offlineBtn.textContent = '4. AudioManager 離線波形檢查（shoot）';
+document.querySelector('.row')?.appendChild(offlineBtn);
+offlineBtn.addEventListener('click', () => {
+  set('offlineAM', '渲染中…');
+  void (async () => {
+    try {
+      const { AudioManager } = await import('./systems/audio');
+      const r = await AudioManager.renderOffline('shoot');
+      set('offlineAM', r.error
+        ? ('錯誤：' + r.error)
+        : (r.peak > 0.001
+          ? ('有波形 peak=' + r.peak.toFixed(4) + '，非零樣本=' + r.nonzero + '（與 spawn 同參數）')
+          : ('波形為 0（peak=' + r.peak + '）')));
+    } catch (e) {
+      set('offlineAM', '例外：' + (e instanceof Error ? e.message : String(e)));
+    }
+  })();
+});

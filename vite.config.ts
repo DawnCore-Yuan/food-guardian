@@ -50,7 +50,8 @@ export default defineConfig(({ command, isPreview }) => {
         },
       },
     },
-    server: { host: '0.0.0.0', port: 5180, strictPort: true },
+    // dev server 供容器內的瀏覽器通道使用；主機名以 IP 形式連線（openclaw-gateway）
+    server: { host: '0.0.0.0', port: 5180, strictPort: true, allowedHosts: ['openclaw-gateway', 'foodsky-test', 'localhost'] },
     preview: {
       host: '0.0.0.0',
       port: 5181,

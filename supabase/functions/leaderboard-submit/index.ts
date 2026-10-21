@@ -25,10 +25,13 @@ const RAW_MAX = OFFICIAL_COUNTS.salmonella * SFX.salmonella
   + OFFICIAL_COUNTS.sulfur * SFX.sulfur
   + OFFICIAL_COUNTS.aflatoxin * SFX.aflatoxin
   + OFFICIAL_COUNTS.aureus * SFX.aureus;
-const MAX_SCORE = 13000;                 // 理論上限 12760（含 5×200 生命獎勵）向上取整
-const MAX_KILLS = 67;                    // 官方波次總生成數
+// v2 波次（src/systems/waves.ts）：沙門氏菌 26、黃麴毒素 14、二氧化硫 12、葡萄球菌 11 ＝ 63 隻
+// 擊破總分 11,110＋通關生命獎勵 1,000 ＝ 理論上限 12,110 → 硬上限 12,500
+const MAX_SCORE = 12500;
+const MAX_KILLS = 63;
 const OFFICIAL_DURATION_MS = 180_000;
-const MIN_LOST_MS = 3_000;               // 進榜最低遊戲時間（防止「一開局就送」）
+// 最早可能陣亡＝第一顆敵彈或第一個敵人接觸；不放任意下限。
+const MIN_LOST_MS = 0;
 const MAX_GAME_MS = 240_000;             // 客戶端回報的遊戲時間上限
 const SERVER_SLACK_MS = 3_000;           // 伺服器與客戶端計時的允許誤差
 
@@ -121,8 +124,13 @@ Deno.serve(async (req: Request) => {
 
     // 伺服器推導勝負與時間合理性
     const claimedWon = body.outcome === 'won';
+    // 通關需要三件事同時成立：正式關卡（版本白名單已涵蓋）、遊戲時間達 180 秒、
+    // 伺服器經過時間也達 180 秒且不超過合理上限（ticket 有效期 20 分鐘）
     if (claimedWon && serverElapsedMs < OFFICIAL_DURATION_MS) {
       return fail('bad_time', '通關時間與伺服器記錄不符', 400);
+    }
+    if (claimedWon && body.elapsedMs < OFFICIAL_DURATION_MS - SERVER_SLACK_MS) {
+      return fail('bad_time', '通關時間不足正式關卡長度', 400);
     }
     // 遊戲時間不得超過伺服器從核發到提交的經過時間（允許 3 秒誤差）；
     // 暫停與輸入暱稱只會讓伺服器時間更長，因此不會誤殺。
@@ -131,9 +139,6 @@ Deno.serve(async (req: Request) => {
     }
     if (body.elapsedMs < MIN_LOST_MS) {
       return fail('bad_time', '本局時間過短', 400);
-    }
-    if (claimedWon && body.elapsedMs < OFFICIAL_DURATION_MS - SERVER_SLACK_MS) {
-      return fail('bad_time', '通關時間不足正式關卡長度', 400);
     }
     // 由分數推回擊破數下限：只有全部擊破才可能達到 RAW_MAX 級分數
     if (body.score > RAW_MAX + HP_BONUS_PER_LIFE && body.kills < MAX_KILLS) {

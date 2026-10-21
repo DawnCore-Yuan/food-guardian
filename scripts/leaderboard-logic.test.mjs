@@ -13,19 +13,24 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+globalThis.__DEV_HOOK__ = false;
+
 const outDir = mkdtempSync(join(tmpdir(), 'lb-build-'));
-execSync(`./node_modules/.bin/tsc src/leaderboard/*.ts --outDir ${outDir} --module esnext --target es2022 --moduleResolution bundler --skipLibCheck --noCheck`, { stdio: 'inherit' });
+execSync(`./node_modules/.bin/tsc src/leaderboard/*.ts src/systems/waves.ts src/types.ts src/data/balance.ts --outDir ${outDir} --module esnext --target es2022 --moduleResolution bundler --skipLibCheck --noCheck`, { stdio: 'inherit' });
 const mod = async (name) => {
-  // tsc 產出的 import 不帶副檔名；Node ESM 不接受，補上 package.json 讓 .js 以 ESM 解析，
-  // 並把無副檔名的相對 import 改寫成 .js（只在暫存目錄內，不改專案原始碼）。
-  const { readdirSync, readFileSync, writeFileSync } = await import('node:fs');
-  for (const f of readdirSync(outDir).filter((x) => x.endsWith('.js'))) {
-    const file = join(outDir, f);
-    const src = readFileSync(file, 'utf8').replace(/from '\.\/([A-Za-z0-9_-]+)'/g, "from './$1.js'");
+  // tsc 產出的 import 不帶副檔名，Node ESM 不接受。遞迴掃描暫存目錄，
+  // 把相對 import 補上 .js（只在暫存目錄內改，不動專案原始碼）。
+  const { readdirSync, readFileSync, writeFileSync, statSync } = await import('node:fs');
+  const walk = (dir) => readdirSync(dir).flatMap((f) => {
+    const full = join(dir, f);
+    return statSync(full).isDirectory() ? [full, ...walk(full)] : [full];
+  });
+  for (const file of walk(outDir).filter((f) => f.endsWith('.js'))) {
+    const src = readFileSync(file, 'utf8').replace(/from '(\.{1,2}\/[^']+)'/g, (m, rel) => (rel.endsWith('.js') ? m : `from '${rel}.js'`));
     writeFileSync(file, src);
   }
   writeFileSync(join(outDir, 'package.json'), '{"type":"module"}');
-  return import(`${outDir}/${name}.js`);
+  return import(`${outDir}/leaderboard/${name}.js`);
 };
 
 // ── 最小 DOM 替身（只實作 ui.ts 用到的 API） ──
@@ -77,6 +82,7 @@ function installDom() {
   byId.set('ui-layer', layerEl);
   globalThis.document = doc;
   globalThis.window = { setTimeout: (f, ms) => setTimeout(f, ms) };
+  if (!globalThis.__IMPORT_META_ENV__) globalThis.__IMPORT_META_ENV__ = {};
   return { body, layerEl };
 }
 

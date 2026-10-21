@@ -140,6 +140,11 @@ function outcomeLabel(o: 'won' | 'lost'): string {
 export class LeaderboardUI {
   private cfg: LeaderboardConfig = loadLeaderboardConfig();
   private mode: Mode = isLeaderboardConfigured(this.cfg) ? 'live' : 'mock';
+  /** dev-only 模擬故障：?lbMock=fail（載入失敗）／?lbMock=empty（空榜）／?lbMock=slow（延遲） */
+  private mockScenario = (() => {
+    if (!__DEV_HOOK__) return '' as string;
+    return new URLSearchParams(location.search).get('lbMock') ?? '';
+  })();
   private scrim: HTMLElement | null = null;
   private ticket: RunTicket | null = null;
   private pendingStart: Promise<void> | null = null;
@@ -147,10 +152,25 @@ export class LeaderboardUI {
 
   constructor() {
     injectStyle();
-    this.prefetch();
+    if (this.mode === 'mock') {
+      this.mockTicketId = 'mock-' + Math.random().toString(36).slice(2, 10) + '-' + Date.now().toString(36);
+    } else {
+      this.prefetch();
+    }
   }
 
   getMode(): Mode { return this.mode; }
+
+  /** 這局拿到的伺服器識別；沒有（或 mock 模式）回 null */
+  currentTicketId(): string | null {
+    if (this.mode === 'live') return this.ticket ? this.ticket.ticketId : null;
+    // 模擬模式核發的「模擬識別」：只存在記憶體、只給 UI 流程使用，
+    // 格式與 server ticket 不同（mock- 前綴），不可能通過伺服器驗證。
+    return this.mockTicketId;
+  }
+
+  /** 模擬模式的單局識別（每次 newRun 換一個） */
+  private mockTicketId: string | null = null;
 
   /** 遊戲開始時先取得單局識別；失敗不阻擋遊戲，結算時再重試 */
   prefetch(): void {
@@ -165,6 +185,10 @@ export class LeaderboardUI {
   /** 每次真正開始一局（含再玩一次）都呼叫：換新的單局識別 */
   newRun(): void {
     this.lastSubmit = null;
+    if (this.mode === 'mock') {
+      this.mockTicketId = 'mock-' + Math.random().toString(36).slice(2, 10) + '-' + Date.now().toString(36);
+      return;
+    }
     this.prefetch();
   }
 
@@ -273,6 +297,21 @@ export class LeaderboardUI {
     const load = async (): Promise<void> => {
       body.replaceChildren(el('div', 'lb-loading', '排行榜載入中…'));
       setPager();
+      if (this.mode === 'mock') {
+        if (this.mockScenario === 'slow') await new Promise((r) => setTimeout(r, 2500));
+        if (this.mockScenario === 'fail') {
+          body.replaceChildren(
+            el('div', 'lb-error', '排行榜暫時無法載入：無法連線（模擬故障）'),
+            el('div', 'lb-hint', '遊戲本身不受影響，可以照常開始遊戲。'),
+            button('重新載入', () => { void load(); }),
+          );
+          return;
+        }
+        if (this.mockScenario === 'empty') {
+          body.replaceChildren(el('div', 'lb-empty', '目前還沒有人上榜（模擬空榜）。'));
+          return;
+        }
+      }
       try {
         const p = this.mode === 'mock'
           ? MOCK_PAGES[Math.min(page - 1, MOCK_PAGES.length - 1)]

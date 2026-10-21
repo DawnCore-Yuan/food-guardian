@@ -7,6 +7,7 @@ import { audio } from '../systems/audio';
 import { TouchController } from '../ui/touch';
 import { updateEnemy, type EnemyBody, type BehaviorHost } from '../systems/enemy-behaviors';
 import { WarnQuota } from '../systems/warn-quota';
+import { leaderboard } from '../leaderboard/hub';
 import { InputController } from '../systems/input';
 import { RunState } from '../systems/runstate';
 import { DEFAULT_LEVEL, LEVELS, type LevelConfig, type LevelId } from '../systems/waves';
@@ -43,6 +44,8 @@ export class GameScene extends Phaser.Scene {
   private invulnMs = 0;
   private hudReady = false;
   private level!: LevelConfig;
+  /** 結算只執行一次（防守性；RunState 亦只回傳一次結果） */
+  private finished = false;
 
   constructor() { super('Game'); }
 
@@ -53,6 +56,13 @@ export class GameScene extends Phaser.Scene {
     this.level = LEVELS[levelId];
     this.reducedMotion = isReducedMotion();
     this.run = new RunState(1);
+    this.finished = false;
+    this.lastPeakSampleAt = 0;
+    if (__DEV_HOOK__) {
+      const w = window as unknown as { __FG_PEAKS__?: unknown; __FG_METRICS__?: unknown };
+      w.__FG_PEAKS__ = { enemies: 0, bullets: 0, warns: 0 };
+      w.__FG_METRICS__ = { spawnAttempt: 0, spawnSkippedCap: 0, bulletSkippedCap: 0 };
+    }
     this.wavesInitialized = false;
     this.pending = [];
     this.cooldownMs = 0;
@@ -258,7 +268,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private get isFighting(): boolean {
-    return this.run.phase === 'playing' || this.run.phase === 'finishing';
+    return this.run.phase === 'playing';
   }
 
   override update(_time: number, delta: number): void {
@@ -274,7 +284,7 @@ export class GameScene extends Phaser.Scene {
 
     if (this.input2.consumePause()) { this.requestPause(); return; }
 
-    this.run.tick(dt);
+    this.run.tick(dt, this.level.durationMs);
     const kb = this.input2.read();
     const tc = this.touch?.read();
     // 混合輸入優先序：有鍵盤方向輸入時以鍵盤為準，否則用觸控；射擊為 OR
@@ -376,6 +386,7 @@ export class GameScene extends Phaser.Scene {
       };
     }
 
+    if (__DEV_HOOK__) this.samplePeaks();
     this.checkOutcome();
     this.updateNameTags();
     this.updateHud();
@@ -426,7 +437,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   private spawnEnemy(defId: string, y: number): void {
-    if (this.enemies.countActive(true) >= BALANCE.caps.enemies) return;
+    if (__DEV_HOOK__) {
+      const m = (window as unknown as { __FG_METRICS__?: Record<string, number> }).__FG_METRICS__
+        ?? ((window as unknown as { __FG_METRICS__?: Record<string, number> }).__FG_METRICS__ = {});
+      m.spawnAttempt = (m.spawnAttempt ?? 0) + 1;
+    }
+    if (this.enemies.countActive(true) >= BALANCE.caps.enemies) {
+      if (__DEV_HOOK__) {
+        const m = (window as unknown as { __FG_METRICS__?: Record<string, number> }).__FG_METRICS__!;
+        m.spawnSkippedCap = (m.spawnSkippedCap ?? 0) + 1;
+      }
+      return;
+    }
     const def: EnemyDefinition = ENEMIES[defId];
     if (!def) return;
     const e = this.physics.add.sprite(def.spawnX, y, texFor(def.kindId, this)) as EnemySprite;
@@ -613,7 +635,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   private spawnEnemyProjectile(x: number, y: number, speed: number): void {
-    if (this.enemyBullets.countActive(true) >= BALANCE.caps.enemyBullets) return;
+    if (this.enemyBullets.countActive(true) >= BALANCE.caps.enemyBullets) {
+      if (__DEV_HOOK__) {
+        const m = (window as unknown as { __FG_METRICS__?: Record<string, number> }).__FG_METRICS__
+          ?? ((window as unknown as { __FG_METRICS__?: Record<string, number> }).__FG_METRICS__ = {});
+        m.bulletSkippedCap = (m.bulletSkippedCap ?? 0) + 1;
+      }
+      return;
+    }
     const b = this.enemyBullets.get(x, y) as Phaser.Physics.Arcade.Image | null;
     if (!b) return;
     b.setActive(true).setVisible(true);
@@ -688,6 +717,8 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall(BALANCE.player.invulnMs, () => {
       if (this.player.active) this.player.setTint(0xffffff);
     });
+    // 致命一擊：立即走同一個結算入口（死亡優先於時間判定）
+    this.checkOutcome();
   }
 
   /** 非致命命中不改 settled；只有死亡才結算一次（規格 §6.2） */
@@ -734,44 +765,34 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall(BALANCE.player.invulnMs, () => {
       if (this.player.active) this.player.setTint(0x2a9d8f);
     });
+    this.checkOutcome();
   }
 
+  /** dev-only：每 250ms 取樣在場敵人／敵彈／預警人數的峰值（實測用，不影響玩法） */
+  private lastPeakSampleAt = 0;
+  private samplePeaks(): void {
+    if (this.run.elapsedMs - this.lastPeakSampleAt < 250) return;
+    this.lastPeakSampleAt = this.run.elapsedMs;
+    const w = window as unknown as { __FG_PEAKS__?: { enemies: number; bullets: number; warns: number } };
+    w.__FG_PEAKS__ = w.__FG_PEAKS__ ?? { enemies: 0, bullets: 0, warns: 0 };
+    w.__FG_PEAKS__.enemies = Math.max(w.__FG_PEAKS__.enemies, this.enemies.countActive(true));
+    w.__FG_PEAKS__.bullets = Math.max(w.__FG_PEAKS__.bullets, this.enemyBullets.countActive(true));
+    w.__FG_PEAKS__.warns = Math.max(w.__FG_PEAKS__.warns, this.warnQuota.inUse);
+  }
+
+  /**
+   * 結算判定（唯一入口）：v2 取消 finishing 清場期。
+   * RunState.resolveTimeout 在同一幀內先看死亡、再看時間，因此
+   * 「同時陣亡與到時」固定判失敗，不依呼叫順序改變。
+   */
   private checkOutcome(): void {
     if (__DEV_HOOK__) {
       const w = window as unknown as { __CO_CALLS__?: number };
       w.__CO_CALLS__ = (w.__CO_CALLS__ || 0) + 1;
     }
-    if (this.run.phase === 'won' || this.run.phase === 'lost') return;
-
-    if (this.run.hp <= 0) {
-      this.run.phase = 'lost';
-      this.finish('lost');
-      return;
-    }
-
-    if (this.run.phase === 'playing' && this.run.elapsedMs >= this.level.durationMs) {
-      this.run.phase = 'finishing';
-    }
-
-    if (this.run.phase === 'finishing') {
-      const enemiesLeft = this.enemies.countActive(true);
-      const bulletsLeft = this.countEnemyBullets();
-      const timeUp = this.run.elapsedMs >= this.level.durationMs + this.level.finishMs;
-      if ((enemiesLeft === 0 && bulletsLeft === 0) || timeUp) {
-        if (timeUp && enemiesLeft > 0) {
-          for (const o of this.enemies.getChildren()) {
-            const e = o as EnemySprite;
-            if (e.active && !e.settled) { e.settled = true; this.run.addEscape(); }
-          }
-        }
-        this.run.phase = 'won';
-        this.finish('won');
-      }
-    }
-  }
-
-  private countEnemyBullets(): number {
-    return this.enemyBullets.countActive(true);
+    if (this.run.phase !== 'playing') return;
+    const result = this.run.resolveTimeout(this.level.durationMs);
+    if (result) this.finish(result);
   }
 
   private finish(outcome: 'won' | 'lost'): void {
@@ -781,6 +802,7 @@ export class GameScene extends Phaser.Scene {
     }
     if (!this.hudReady) return;
     if (this.run.phase !== 'won' && this.run.phase !== 'lost') return;
+    if (this.finished) return; // 結算只執行一次
     // 終局：立即停止輸入與物理，避免結算後仍移動/加分
     this.input2?.clearAll();
     this.touch?.clearAll();
@@ -801,33 +823,61 @@ export class GameScene extends Phaser.Scene {
     this.clearNameTags();
     this.warnQuota.reset();
     this.physics.world.pause();
-    const hpBonus = outcome === 'won' ? this.run.hp * BALANCE.score.hpBonusPerLife : 0;
+    this.finished = true;
+    const hpBonus = this.run.hpBonus(outcome);
+    const finalScore = this.run.finalScore(outcome);
     audio.stopAll();
     audio.play(outcome === 'won' ? 'win' : 'lose');
-    // 排行榜資格：只認正式 180 秒關卡（測試／debug 關卡一律不可上榜）；
-    // 單局識別由伺服器核發，沒有識別就不可能通過伺服器驗證。
-    const eligible = this.level.id === 'official-180s';
-    let leaderboardEligible = false;
+    // 排行榜資格拆成四個獨立條件，各自有明確原因（不再用單一布林混在一起）：
+    //   officialLevel  正式 180 秒關卡（測試／debug 一律不可）
+    //   normalEnd      正常結算（由 finish() 路徑進入，時間與死亡判定成立）
+    //   cloudConfigured 是否有 Supabase 設定（沒有 ≠ 測試關卡）
+    //   hasTicket      是否有伺服器核發的單局識別（模擬模式改發「模擬識別」，正式模式不繞過）
+    const officialLevel = this.level.id === 'official-180s';
+    const normalEnd = true; // 只有 checkOutcome → finish 會到達這裡
+    let cloudConfigured = false;
+    let mode: 'live' | 'mock' = 'live';
+    let runTicketId: string | null = null;
+    try {
+      mode = leaderboard().getMode();
+      cloudConfigured = mode === 'live';
+      runTicketId = leaderboard().currentTicketId();
+    } catch {
+      cloudConfigured = false;
+    }
+    const hasTicket = runTicketId !== null;
+
+    let leaderboardEligible: boolean;
     let leaderboardReason: string | undefined;
-    if (!eligible) {
+    if (!officialLevel) {
+      leaderboardEligible = false;
       leaderboardReason = '測試關卡不列入排行榜';
+    } else if (!normalEnd) {
+      leaderboardEligible = false;
+      leaderboardReason = '非正常結算，本局不登錄';
+    } else if (!hasTicket) {
+      leaderboardEligible = false;
+      leaderboardReason = cloudConfigured
+        ? '未取得本局識別，本局不登錄'
+        : '排行榜尚未連線（模擬模式），本局不登錄';
     } else {
-      try {
-        leaderboardEligible = true;
-      } catch {
-        leaderboardEligible = false;
-        leaderboardReason = '排行榜暫時無法使用，本局不登錄';
-      }
+      leaderboardEligible = true;
+    }
+    if (__DEV_HOOK__) {
+      (window as unknown as { __LB_ELIG__?: unknown }).__LB_ELIG__ = {
+        officialLevel, normalEnd, cloudConfigured, mode, hasTicket, leaderboardEligible, leaderboardReason,
+      };
     }
     this.scene.get('Hud').events.emit('finished', {
       outcome,
-      score: this.run.score + hpBonus,
+      score: finalScore,
       breakdown: { kills: this.run.score, hpBonus },
       elapsedMs: this.run.elapsedMs,
       kills: this.run.kills,
       escapes: this.run.escapes,
       leaderboardEligible,
       leaderboardReason,
+      runTicketId,
     });
   }
 

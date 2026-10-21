@@ -44,7 +44,7 @@ export function randomToken(): string {
 
 /** 允許的版本：以環境變數宣告，避免任意版本字串灌爆榜單 */
 export function allowedVersions(): string[] {
-  return (Deno.env.get('LEADERBOARD_VERSIONS') ?? 'official-180s-v1')
+  return (Deno.env.get('LEADERBOARD_VERSIONS') ?? 'official-180s-v2')
     .split(',').map((s) => s.trim()).filter(Boolean);
 }
 

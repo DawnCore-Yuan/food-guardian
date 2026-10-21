@@ -3,6 +3,7 @@ import type { EnemyDefinition } from '../data/enemies';
 import type { WarnQuota } from './warn-quota';
 
 export interface EnemyBody extends Phaser.Physics.Arcade.Sprite {
+  uid: string;
   def: EnemyDefinition;
   hp: number;
   settled: boolean;
@@ -75,7 +76,7 @@ function updateWaveAccel(e: EnemyBody, _dt: number, quota: WarnQuota, host: Beha
   e.y = y;
 
   if (e.phase === 'cruise' && e.cooldownMs <= 0) {
-    if (quota.tryAcquire()) {
+    if (quota.tryAcquire(e.uid)) {
       e.phase = 'warning';
       e.phaseT = 0;
       host.setWarnSign(e, true);
@@ -84,7 +85,7 @@ function updateWaveAccel(e: EnemyBody, _dt: number, quota: WarnQuota, host: Beha
       e.phase = 'waiting';
     }
   }
-  if (e.phase === 'waiting' && quota.tryAcquire()) {
+  if (e.phase === 'waiting' && quota.tryAcquire(e.uid)) {
     e.phase = 'warning';
     e.phaseT = 0;
     host.setWarnSign(e, true);
@@ -105,14 +106,14 @@ function updateSlowShooter(e: EnemyBody, _dt: number, quota: WarnQuota, host: Be
       e.phase = 'cruise';
       e.phaseT = 0;
       e.cooldownMs = e.def.cooldownMs;
-      quota.release();
+      quota.release(e.uid);
     }
     return;
   }
 
   if (e.phase === 'enter') e.phase = 'cruise';
   if (e.phase === 'cruise' && e.cooldownMs <= 0) {
-    if (quota.tryAcquire()) {
+    if (quota.tryAcquire(e.uid)) {
       e.phase = 'warning';
       e.phaseT = 0;
       host.setWarnSign(e, true);
@@ -121,7 +122,7 @@ function updateSlowShooter(e: EnemyBody, _dt: number, quota: WarnQuota, host: Be
       e.phase = 'waiting';
     }
   }
-  if (e.phase === 'waiting' && quota.tryAcquire()) {
+  if (e.phase === 'waiting' && quota.tryAcquire(e.uid)) {
     e.phase = 'warning';
     e.phaseT = 0;
     host.setWarnSign(e, true);
@@ -169,11 +170,21 @@ function updateLaneShift(e: EnemyBody, _dt: number, quota: WarnQuota, host: Beha
   }
 
   if (e.phase === 'acting') {
-    if (e.phaseT >= (Math.abs(e.baseY - e.y) / 150) * 1000 + pauseMs) {
+    // 抵達目標高度後停止垂直移動，再停留 pauseMs
+    const remaining = e.baseY - e.y;
+    if (Math.abs(remaining) <= 6) {
+      e.setVelocity(0, 0);
+      e.y = e.baseY;
+      e.body!.position.y = e.baseY - e.body!.halfHeight;
+    } else {
+      e.setVelocity(0, Math.sign(remaining) * 150);
+    }
+    if (e.phaseT >= (stepPx / 150) * 1000 + pauseMs) {
       e.phase = 'cruise';
       e.phaseT = 0;
       e.laneDone += 1;
-      quota.release();
+      e.setVelocity(0, 0);
+      quota.release(e.uid);
       e.cooldownMs = e.def.cooldownMs;
     }
     return;
@@ -182,7 +193,7 @@ function updateLaneShift(e: EnemyBody, _dt: number, quota: WarnQuota, host: Beha
   // cruise：等待冷卻後取預警名額
   e.setVelocity(0, 0);
   if (e.cooldownMs <= 0) {
-    if (quota.tryAcquire()) {
+    if (quota.tryAcquire(e.uid)) {
       e.phase = 'warning';
       e.phaseT = 0;
       host.setWarnSign(e, true);
@@ -191,7 +202,7 @@ function updateLaneShift(e: EnemyBody, _dt: number, quota: WarnQuota, host: Beha
       e.phase = 'waiting';
     }
   }
-  if (e.phase === 'waiting' && quota.tryAcquire()) {
+  if (e.phase === 'waiting' && quota.tryAcquire(e.uid)) {
     e.phase = 'warning';
     e.phaseT = 0;
     host.setWarnSign(e, true);

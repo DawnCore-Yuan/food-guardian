@@ -20,6 +20,7 @@ export class GameScene extends Phaser.Scene {
   private enemyBullets!: Phaser.Physics.Arcade.Group;
   private warnQuota = new WarnQuota();
   private warnIcons = new Map<Phaser.GameObjects.Image, EnemySprite>();
+  private warnIconOf = new Map<EnemySprite, Phaser.GameObjects.Image>();
   private readonly behaviorHost: BehaviorHost = {
     spawnEnemyProjectile: (x, y, speed) => this.spawnEnemyProjectile(x, y, speed),
     setWarnSign: (e, visible) => this.setWarnSign(e, visible),
@@ -68,7 +69,7 @@ export class GameScene extends Phaser.Scene {
     this.bullets = this.physics.add.group({ maxSize: BALANCE.caps.playerBullets });
     this.enemies = this.physics.add.group();
     this.enemyBullets = this.physics.add.group({ maxSize: BALANCE.caps.enemyBullets });
-    this.warnQuota.reset();
+    this.warnQuota = new WarnQuota(3, __DEV_HOOK__);
     this.warnIcons.clear();
 
     this.physics.add.overlap(this.bullets, this.enemies, (b, e) => {
@@ -221,9 +222,15 @@ export class GameScene extends Phaser.Scene {
       const e = obj as EnemySprite;
       if (e.active) updateEnemy(e, dt, this.warnQuota, this.behaviorHost);
     }
-    for (const [icon, owner] of [...this.warnIcons.entries()]) {
-      if (!owner.active) { icon.destroy(); this.warnIcons.delete(icon); }
-      else icon.setPosition(owner.x, owner.y - owner.def.size.h / 2 - 18);
+    for (const [owner, icon] of [...this.warnIconOf.entries()]) {
+      if (!owner.active) {
+        icon.destroy();
+        this.warnIconOf.delete(owner);
+        this.warnIcons.delete(icon as unknown as Phaser.GameObjects.Image);
+        this.warnQuota.release(owner.uid);
+      } else {
+        icon.setPosition(this.warnX(owner), this.warnY(owner));
+      }
     }
 
     // 敵彈離場
@@ -237,7 +244,8 @@ export class GameScene extends Phaser.Scene {
       const e = obj as EnemySprite;
       if (e.active && e.x < e.def.exitX) {
         if (!e.settled) { e.settled = true; this.run.addEscape(); }
-        if (e.hasWarnSign) { this.setWarnSign(e, false); this.warnQuota.release(); }
+        if (e.hasWarnSign) { this.setWarnSign(e, false); }
+        this.warnQuota.release(e.uid);
         e.destroy();
       }
     }
@@ -260,6 +268,17 @@ export class GameScene extends Phaser.Scene {
           steps: this.physics.world.stepsLastFrame,
         });
       }
+    }
+
+    if (__DEV_HOOK__) {
+      const w = window as unknown as { __WARN__?: unknown };
+      w.__WARN__ = {
+        inUse: this.warnQuota.inUse,
+        holders: this.warnQuota.holdersList(),
+        icons: this.warnIconOf.size,
+        enemies: this.enemies.getChildren().filter((o) => (o as EnemySprite).active)
+          .map((o) => { const e = o as EnemySprite; return { uid: e.uid, k: e.def.kindId, ph: e.phase, hasSign: e.hasWarnSign }; }),
+      };
     }
 
     this.checkOutcome();
@@ -287,6 +306,7 @@ export class GameScene extends Phaser.Scene {
     (e.body as Phaser.Physics.Arcade.Body).allowGravity = false;
     e.setCollideWorldBounds(false);
     e.setVelocityX(-def.speed);
+    e.uid = `${defId}#${this.run.elapsedMs.toFixed(0)}#${Math.random().toString(36).slice(2,7)}`;
     e.def = def;
     e.hp = def.hp;
     e.settled = false;
@@ -302,21 +322,20 @@ export class GameScene extends Phaser.Scene {
 
   /** 預警三角：獨立圖層，不烘焙進角色素材 */
   private setWarnSign(e: EnemySprite, visible: boolean): void {
-    const existing = [...this.warnIcons.entries()].find(([, owner]) => owner === e);
     if (!visible) {
-      if (existing) {
-        existing[0].destroy();
-        this.warnIcons.delete(existing[0]);
-      }
+      const found = this.warnIconOf.get(e);
+      if (found) { found.destroy(); this.warnIconOf.delete(e); this.warnIcons.delete(found as unknown as Phaser.GameObjects.Image); }
       return;
     }
-    if (existing) {
-      existing[0].setPosition(e.x, e.y - e.def.size.h / 2 - 18);
-      return;
-    }
-    const icon = this.add.image(e.x, e.y - e.def.size.h / 2 - 18, TEX.warnSign).setDepth(5);
-    this.warnIcons.set(icon, e);
+    const existing = this.warnIconOf.get(e);
+    if (existing) { existing.setPosition(this.warnX(e), this.warnY(e)); return; }
+    const img = this.add.image(this.warnX(e), this.warnY(e), TEX.warnSign).setDepth(5).setAlpha(0.95);
+    this.warnIconOf.set(e, img);
+    this.warnIcons.set(img as unknown as Phaser.GameObjects.Image, e);
   }
+
+  private warnX(e: EnemySprite): number { return e.x; }
+  private warnY(e: EnemySprite): number { return e.y - e.def.size.h / 2 - 18; }
 
   private spawnEnemyProjectile(x: number, y: number, speed: number): void {
     if (this.enemyBullets.countActive(true) >= BALANCE.caps.enemyBullets) return;
@@ -353,7 +372,8 @@ export class GameScene extends Phaser.Scene {
     if (enemy.hp <= 0) {
       enemy.settled = true;
       this.run.addKill(enemy.def.score);
-      if (enemy.hasWarnSign) { this.setWarnSign(enemy, false); this.warnQuota.release(); }
+      if (enemy.hasWarnSign) { this.setWarnSign(enemy, false); }
+      this.warnQuota.release(enemy.uid);
       enemy.destroy();
     } else {
       enemy.setTint(0xffffff);
@@ -434,8 +454,9 @@ export class GameScene extends Phaser.Scene {
     }
     this.bullets.clear(true, true);
     this.enemyBullets.clear(true, true);
-    for (const icon of this.warnIcons.keys()) icon.destroy();
+    for (const icon of [...this.warnIcons.keys()]) icon.destroy();
     this.warnIcons.clear();
+    this.warnIconOf.clear();
     this.warnQuota.reset();
     this.physics.world.pause();
     const hpBonus = outcome === 'won' ? this.run.hp * BALANCE.score.hpBonusPerLife : 0;

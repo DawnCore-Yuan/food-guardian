@@ -24,11 +24,6 @@ export class MenuScene extends Phaser.Scene {
       }).setOrigin(0.5);
     }
 
-    // B 階段測試版標示：避免與正式三段關卡文案混淆
-    this.add.text(width / 2, height * 0.32, 'C 階段｜180 秒｜四種敵人', {
-      fontFamily: '"Noto Sans TC", sans-serif', fontSize: '26px', color: '#e76f51',
-    }).setOrigin(0.5);
-
     this.add.text(width / 2, height * 0.39, '黃麴毒素・二氧化硫超標・沙門氏菌・金黃色葡萄球菌', {
       fontFamily: '"Noto Sans TC", sans-serif', fontSize: '20px', color: '#5a8aa8',
     }).setOrigin(0.5);
@@ -55,6 +50,17 @@ export class MenuScene extends Phaser.Scene {
     this.add.text(width / 2, height * 0.90, 'Esc／P 暫停　·　點右上角可暫停', {
       fontFamily: '"Noto Sans TC", sans-serif', fontSize: '18px', color: '#7c9cb3',
     }).setOrigin(0.5);
+
+    // 版本說明：頁尾小字（原位置已移除，不重複顯示）
+    // 以「底部安全邊距 + 自身高度」定位，而非固定百分比，避免手機橫向被裁切或與上一行重疊
+    const footerSize = height < 480 ? 15 : 16;
+    const footer = this.add.text(width / 2, 0, 'C 階段｜180 秒｜四種敵人', {
+      fontFamily: '"Noto Sans TC", sans-serif',
+      fontSize: `${footerSize}px`,
+      color: '#8aa9bd',
+    }).setOrigin(0.5, 1);
+    const bottomSafe = Math.max(12, Math.round(height * 0.035));
+    footer.setY(height - bottomSafe);
   }
 
   private startGame(): void {

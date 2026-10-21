@@ -4,6 +4,7 @@ import { ENEMIES } from '../data/enemies';
 import { InputController } from '../systems/input';
 import { RunState } from '../systems/runstate';
 import { TEST_FINISH_MS, TEST_LEVEL_DURATION_MS, TEST_WAVES } from '../systems/waves';
+import { TEX } from '../data/placeholder';
 
 interface EnemySprite extends Phaser.Physics.Arcade.Sprite {
   defId: string;
@@ -41,8 +42,7 @@ export class GameScene extends Phaser.Scene {
       this.add.rectangle(120 + i * 220, 360, 8, 540, 0xffffff, 0.35);
     }
 
-    this.player = this.physics.add.sprite(180, 360, '__white');
-    this.player.setDisplaySize(64, 40).setTint(0x2a9d8f);
+    this.player = this.physics.add.sprite(180, 360, TEX.player);
     this.player.body!.setSize(BALANCE.player.bodyW, BALANCE.player.bodyH);
     this.player.setCollideWorldBounds(true);
     this.physics.world.setBounds(60, 90, 1160, 540);
@@ -172,7 +172,7 @@ export class GameScene extends Phaser.Scene {
     this.player.setVelocity(inp.moveX * BALANCE.player.speed, inp.moveY * BALANCE.player.speed);
 
     // 射擊冷卻
-    if (this.invulnMs > 0) this.invulnMs -= dt;
+    if (this.invulnMs > 0) this.invulnMs = Math.max(0, this.invulnMs - dt);
     if (this.cooldownMs > 0) this.cooldownMs -= dt;
     if (inp.firing && this.cooldownMs <= 0 && this.bullets.countActive(true) < BALANCE.caps.playerBullets) {
       this.fireBullet();
@@ -225,7 +225,7 @@ export class GameScene extends Phaser.Scene {
     const b = this.bullets.get(this.player.x + 36, this.player.y) as Phaser.Physics.Arcade.Image | null;
     if (!b) return;
     b.setActive(true).setVisible(true);
-    b.setDisplaySize(BALANCE.player.bulletW, BALANCE.player.bulletH).setTint(0xffd166);
+    b.setTexture(TEX.playerBullet);
     (b.body as Phaser.Physics.Arcade.Body).enable = true;
     b.body!.setSize(BALANCE.player.bulletW, BALANCE.player.bulletH);
     b.setVelocityX(BALANCE.player.bulletSpeed);
@@ -234,8 +234,8 @@ export class GameScene extends Phaser.Scene {
   private spawnEnemy(defId: string, y: number): void {
     if (this.enemies.countActive(true) >= BALANCE.caps.enemies) return;
     const def = ENEMIES[defId];
-    const e = this.physics.add.sprite(def.spawnX, y, '__white') as EnemySprite;
-    e.setDisplaySize(def.size.w, def.size.h).setTint(def.tint);
+    const texKey = def.id === 'germ' ? TEX.germ : def.id === 'cloud' ? TEX.cloud : TEX.shard;
+    const e = this.physics.add.sprite(def.spawnX, y, texKey) as EnemySprite;
     e.body!.setSize(def.body.w, def.body.h);
     (e.body as Phaser.Physics.Arcade.Body).allowGravity = false;
     e.setVelocityX(-def.speed);

@@ -61,25 +61,79 @@ export class MenuScene extends Phaser.Scene {
       fontFamily: '"Noto Sans TC", sans-serif', fontSize: '24px', color: '#5a8aa8',
     }).setOrigin(0.5);
 
-    const start = this.add.text(width / 2, height * 0.62, '開始遊戲', {
+    // ── 按鈕列：開始遊戲（主）＋ 排行榜（次），左右並排、等高、整組水平置中 ──
+    // 位於最高分（0.46）下方、操作提示（0.805）上方；兩鈕間距 28 邏輯 px，命中區不重疊。
+    const rowY = Math.round(height * 0.64);
+    const gap = 28;
+    const cssScale = (this.game.canvas.getBoundingClientRect().width / this.scale.width) || 1;
+
+    const paintButton = (
+      g: Phaser.GameObjects.Graphics,
+      label: Phaser.GameObjects.Text,
+      hue: number,
+      w: number,
+    ): void => {
+      g.clear();
+      g.fillStyle(hue, 1).fillRoundedRect(-w / 2, -rowHitH / 2, w, rowHitH, 10);
+      label.setPosition(0, 0);
+    };
+
+    const startLabel = this.add.text(0, 0, '開始遊戲', {
       fontFamily: '"Noto Sans TC", sans-serif', fontSize: '40px', color: '#ffffff',
-      backgroundColor: '#2a9d8f', padding: { x: 48, y: 18 },
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    }).setOrigin(0.5).setName('menu-start-label');
+    const lbLabel = this.add.text(0, 0, '排行榜', {
+      fontFamily: '"Noto Sans TC", sans-serif', fontSize: '40px', color: '#ffffff',
+    }).setOrigin(0.5).setName('menu-leaderboard-label');
 
-    start.on('pointerup', () => this.startGame());
-    this.input.keyboard?.on('keydown-ENTER', () => this.startGame());
+    const startW = Math.max(320, Math.ceil(startLabel.width + 96));
+    const lbW = Math.max(220, Math.ceil(lbLabel.width + 88));
 
-    // 排行榜入口：與開始遊戲同寬度語彙、深藍底，維持首頁只剩一個主 CTA（綠色）
-    const lbLabel = this.add.text(width / 2, height * 0.705, '排行榜', {
-      fontFamily: '"Noto Sans TC", sans-serif', fontSize: '30px', color: '#ffffff',
-      backgroundColor: '#24425c', padding: { x: 36, y: 14 },
-    }).setOrigin(0.5).setName('menu-leaderboard');
-    // 新增按鈕同樣維持 ≥48 CSS px 命中高度
-    const lbBox = lbLabel.getBounds();
-    const lbHitH = Math.max(lbBox.height, Math.ceil(48 / Math.max(0.01, cssScaleGuarded(this))));
-    const lbHit = this.add.zone(lbLabel.x, lbLabel.y, lbBox.width + 24, lbHitH)
-      .setOrigin(0.5).setInteractive({ useHandCursor: true }).setName('menu-leaderboard-hit');
+    // 可用寬度：兩鈕＋間距，且不超出畫布左右安全邊距（各 24）
+    const safe = Math.max(0, width - 48);
+    let scaleRow = 1;
+    if (startW + gap + lbW > safe) scaleRow = safe / (startW + gap + lbW);
+    const w1 = Math.floor(startW * scaleRow);
+    const w2 = Math.floor(lbW * scaleRow);
+    const g2 = Math.max(16, Math.round(gap * scaleRow));
+    const totalW = w1 + g2 + w2;
+    const leftX = (width - totalW) / 2;
+
+    // 命中高度以「最終 CSS 尺寸」為準：FIT 模式下畫布等比縮放，
+    // 整列縮放（scaleRow）不影響 canvas→CSS 的比例，但明確以 ratio 回推，
+    // 避免只憑縮放前的邏輯高度或上限宣稱 48 CSS px。
+    const fitRatio = Math.min(
+      this.scale.displaySize.width / this.scale.width,
+      this.scale.displaySize.height / this.scale.height,
+    ) || cssScale;
+    const minLogicalH = Math.ceil(48 / Math.max(0.01, fitRatio));
+    // 桌面 96；窄畫面以 ≥48 CSS px 回推並留 8px 餘裕；上限 140（放得進版面時不壓縮可讀高度）
+    const btnH = Math.min(140, Math.max(96, minLogicalH + 8));
+    // 上下可用空間：按鈕列不得壓到最高分（0.46）或操作提示（0.805）
+    const rowTopLimit = Math.round(height * 0.50);
+    const rowBottomLimit = Math.round(height * 0.78);
+    const maxBtnH = Math.max(56, rowBottomLimit - rowTopLimit);
+    const rowHitH = Math.min(btnH, maxBtnH);
+
+    const startG = this.add.graphics().setName('menu-start-plate');
+    const lbG = this.add.graphics().setName('menu-leaderboard-plate');
+    const startBtn = this.add.container(leftX + w1 / 2, rowY, [startG, startLabel]).setName('menu-start');
+    const lbBtn = this.add.container(leftX + w1 + g2 + w2 / 2, rowY, [lbG, lbLabel]).setName('menu-leaderboard');
+
+    paintButton(startG, startLabel, 0x2a9d8f, w1);
+    paintButton(lbG, lbLabel, 0x24425c, w2);
+    if (scaleRow < 1) {
+      // 極窄畫面才縮字，仍保持可讀（最小 26px）
+      const fs = Math.max(26, Math.round(40 * scaleRow));
+      startLabel.setFontSize(fs);
+      lbLabel.setFontSize(fs);
+    }
+
+    // 命中區與可見底板同尺寸，互不重疊
+    const startHit = this.add.zone(startBtn.x, rowY, w1, rowHitH).setOrigin(0.5).setInteractive({ useHandCursor: true }).setName('menu-start-hit');
+    const lbHit = this.add.zone(lbBtn.x, rowY, w2, rowHitH).setOrigin(0.5).setInteractive({ useHandCursor: true }).setName('menu-leaderboard-hit');
+    startHit.on('pointerup', () => this.startGame());
     lbHit.on('pointerup', () => this.openLeaderboard());
+    this.input.keyboard?.on('keydown-ENTER', () => this.startGame());
 
     // 依輸入能力顯示操作說明（觸控與鍵盤皆已實作）
     const touch = typeof window !== 'undefined' && 'ontouchstart' in window;
@@ -93,8 +147,8 @@ export class MenuScene extends Phaser.Scene {
 
     // 音效開關（首頁）：與「開始遊戲」同字級（40px），白色粗體置中
     // 命中區需求 ≥48 CSS px：以 canvas 實際顯示比例回推邏輯尺寸
-    const cssScale = (this.game.canvas.getBoundingClientRect().width / this.scale.width) || 1;
-    const hitH = Math.min(150, Math.max(80, Math.ceil(48 / Math.max(0.01, cssScale)) + 10));
+    const sndCssScale = (this.game.canvas.getBoundingClientRect().width / this.scale.width) || 1;
+    const hitH = Math.min(150, Math.max(80, Math.ceil(48 / Math.max(0.01, sndCssScale)) + 10));
     const boxW = Math.round(hitH * 2.4);
 
     const sndPlate = this.add.graphics().setName('menu-snd');
@@ -174,9 +228,3 @@ export class MenuScene extends Phaser.Scene {
   }
 }
 
-/** 由 canvas 實際顯示寬度回推 CSS／邏輯像素比例（命中區尺寸計算用） */
-function cssScaleGuarded(scene: Phaser.Scene): number {
-  const rect = scene.game.canvas.getBoundingClientRect();
-  const s = rect.width / scene.scale.width;
-  return Number.isFinite(s) && s > 0 ? s : 1;
-}

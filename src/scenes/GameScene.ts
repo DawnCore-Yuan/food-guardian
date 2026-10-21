@@ -1,17 +1,15 @@
 import Phaser from 'phaser';
 import { BALANCE } from '../data/balance';
-import { ENEMIES } from '../data/enemies';
+import { ENEMIES, type EnemyDefinition } from '../data/enemies';
+import { HAZARD_KINDS } from '../data/hazard-kinds';
+import { updateEnemy, type EnemyBody, type BehaviorHost } from '../systems/enemy-behaviors';
+import { WarnQuota } from '../systems/warn-quota';
 import { InputController } from '../systems/input';
 import { RunState } from '../systems/runstate';
-import { TEST_FINISH_MS, TEST_LEVEL_DURATION_MS, TEST_WAVES } from '../systems/waves';
-import { TEX } from '../data/placeholder';
+import { DEFAULT_LEVEL, LEVELS, type LevelConfig, type LevelId } from '../systems/waves';
+import { TEX, texFor, buildPlaceholders } from '../data/placeholder';
 
-interface EnemySprite extends Phaser.Physics.Arcade.Sprite {
-  defId: string;
-  hp: number;
-  settled: boolean;
-  enteredAt: number;
-}
+type EnemySprite = EnemyBody;
 
 export class GameScene extends Phaser.Scene {
   private input2!: InputController;
@@ -19,6 +17,13 @@ export class GameScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite;
   private bullets!: Phaser.Physics.Arcade.Group;
   private enemies!: Phaser.Physics.Arcade.Group;
+  private enemyBullets!: Phaser.Physics.Arcade.Group;
+  private warnQuota = new WarnQuota();
+  private warnIcons = new Map<Phaser.GameObjects.Image, EnemySprite>();
+  private readonly behaviorHost: BehaviorHost = {
+    spawnEnemyProjectile: (x, y, speed) => this.spawnEnemyProjectile(x, y, speed),
+    setWarnSign: (e, visible) => this.setWarnSign(e, visible),
+  };
   private wavesInitialized = false;
   private pending: Array<{ at: number; enemyId: string; y: number }> = [];
   private cooldownMs = 0;
@@ -26,10 +31,15 @@ export class GameScene extends Phaser.Scene {
   private hudReady = false;
   private hudText!: Phaser.GameObjects.Text;
   private progress!: Phaser.GameObjects.Rectangle;
+  private level!: LevelConfig;
 
   constructor() { super('Game'); }
 
   create(): void {
+    const params = new URLSearchParams(location.search);
+    const requested = params.get('level') as LevelId | null;
+    const levelId: LevelId = __DEV_HOOK__ && requested && LEVELS[requested] ? requested : DEFAULT_LEVEL;
+    this.level = LEVELS[levelId];
     this.run = new RunState(1);
     this.wavesInitialized = false;
     this.pending = [];
@@ -48,14 +58,27 @@ export class GameScene extends Phaser.Scene {
     this.player.setCollideWorldBounds(true);
     this.physics.world.setBounds(60, 90, 1160, 540);
 
+    buildPlaceholders(this, [
+      { kindId: 'aflatoxin', w: 72, h: 72 },
+      { kindId: 'sulfur_dioxide_excess', w: 88, h: 64 },
+      { kindId: 'salmonella', w: 96, h: 48 },
+      { kindId: 's_aureus', w: 80, h: 80 },
+    ]);
+
     this.bullets = this.physics.add.group({ maxSize: BALANCE.caps.playerBullets });
     this.enemies = this.physics.add.group();
+    this.enemyBullets = this.physics.add.group({ maxSize: BALANCE.caps.enemyBullets });
+    this.warnQuota.reset();
+    this.warnIcons.clear();
 
     this.physics.add.overlap(this.bullets, this.enemies, (b, e) => {
       this.onBulletHit(b as Phaser.Physics.Arcade.Image, e as EnemySprite);
     });
     this.physics.add.overlap(this.player, this.enemies, (_p, e) => {
       this.onPlayerHitEnemy(e as EnemySprite);
+    });
+    this.physics.add.overlap(this.player, this.enemyBullets, (_p, b) => {
+      this.onEnemyBulletHitPlayer(b as Phaser.Physics.Arcade.Image);
     });
 
     this.add.graphics().fillStyle(0xffffff, 0.001); // reserve
@@ -139,7 +162,7 @@ export class GameScene extends Phaser.Scene {
       w.__SW_CALLS__ = (w.__SW_CALLS__ || 0) + 1;
     }
     this.pending = [];
-    for (const g of TEST_WAVES) {
+    for (const g of this.level.waves) {
       let t = g.atMs;
       g.batches.forEach((b, bi) => {
         if (bi > 0) t += g.gapBetweenBatchesMs;
@@ -193,11 +216,28 @@ export class GameScene extends Phaser.Scene {
       this.spawnEnemy(s.enemyId, s.y);
     }
 
+    // 敵人行為更新（資料驅動狀態機）
+    for (const obj of this.enemies.getChildren()) {
+      const e = obj as EnemySprite;
+      if (e.active) updateEnemy(e, dt, this.warnQuota, this.behaviorHost);
+    }
+    for (const [icon, owner] of [...this.warnIcons.entries()]) {
+      if (!owner.active) { icon.destroy(); this.warnIcons.delete(icon); }
+      else icon.setPosition(owner.x, owner.y - owner.def.size.h / 2 - 18);
+    }
+
+    // 敵彈離場
+    for (const obj of this.enemyBullets.getChildren()) {
+      const b = obj as Phaser.Physics.Arcade.Image;
+      if (b.active && (b.x < 0 || b.x > 1280)) b.destroy();
+    }
+
     // 敵人自然離場
     for (const obj of this.enemies.getChildren()) {
       const e = obj as EnemySprite;
-      if (e.active && e.x < ENEMIES[e.defId].exitX) {
+      if (e.active && e.x < e.def.exitX) {
         if (!e.settled) { e.settled = true; this.run.addEscape(); }
+        if (e.hasWarnSign) { this.setWarnSign(e, false); this.warnQuota.release(); }
         e.destroy();
       }
     }
@@ -238,19 +278,69 @@ export class GameScene extends Phaser.Scene {
 
   private spawnEnemy(defId: string, y: number): void {
     if (this.enemies.countActive(true) >= BALANCE.caps.enemies) return;
-    const def = ENEMIES[defId];
-    const texKey = def.id === 'germ' ? TEX.germ : def.id === 'cloud' ? TEX.cloud : TEX.shard;
-    const e = this.physics.add.sprite(def.spawnX, y, texKey) as EnemySprite;
+    const def: EnemyDefinition = ENEMIES[defId];
+    if (!def) return;
+    const e = this.physics.add.sprite(def.spawnX, y, texFor(def.kindId)) as EnemySprite;
     // 先加入群組（群組會套用 defaults 覆寫 velocity / allowGravity），再設定個別屬性
     this.enemies.add(e);
     e.body!.setSize(def.body.w, def.body.h);
     (e.body as Phaser.Physics.Arcade.Body).allowGravity = false;
     e.setCollideWorldBounds(false);
     e.setVelocityX(-def.speed);
-    e.defId = defId;
+    e.def = def;
     e.hp = def.hp;
     e.settled = false;
     e.enteredAt = this.run.elapsedMs;
+    e.phase = 'enter';
+    e.phaseT = 0;
+    e.cooldownMs = 0;
+    e.baseY = y;
+    e.elapsedMs = 0;
+    e.laneDone = 0;
+    e.hasWarnSign = false;
+  }
+
+  /** 預警三角：獨立圖層，不烘焙進角色素材 */
+  private setWarnSign(e: EnemySprite, visible: boolean): void {
+    const existing = [...this.warnIcons.entries()].find(([, owner]) => owner === e);
+    if (!visible) {
+      if (existing) {
+        existing[0].destroy();
+        this.warnIcons.delete(existing[0]);
+      }
+      return;
+    }
+    if (existing) {
+      existing[0].setPosition(e.x, e.y - e.def.size.h / 2 - 18);
+      return;
+    }
+    const icon = this.add.image(e.x, e.y - e.def.size.h / 2 - 18, TEX.warnSign).setDepth(5);
+    this.warnIcons.set(icon, e);
+  }
+
+  private spawnEnemyProjectile(x: number, y: number, speed: number): void {
+    if (this.enemyBullets.countActive(true) >= BALANCE.caps.enemyBullets) return;
+    const b = this.enemyBullets.get(x, y) as Phaser.Physics.Arcade.Image | null;
+    if (!b) return;
+    b.setActive(true).setVisible(true);
+    b.setTexture(TEX.enemyBullet);
+    (b.body as Phaser.Physics.Arcade.Body).enable = true;
+    b.body!.setSize(12, 12);
+    (b.body as Phaser.Physics.Arcade.Body).allowGravity = false;
+    b.setVelocityX(-speed);
+  }
+
+  private onEnemyBulletHitPlayer(b: Phaser.Physics.Arcade.Image): void {
+    if (!this.isFighting) return;
+    if (!b.active) return;
+    b.destroy();
+    if (this.invulnMs > 0) return;
+    this.run.damage(1);
+    this.invulnMs = BALANCE.player.invulnMs;
+    this.player.setTint(0xff8a8a);
+    this.time.delayedCall(BALANCE.player.invulnMs, () => {
+      if (this.player.active) this.player.setTint(0xffffff);
+    });
   }
 
   /** 非致命命中不改 settled；只有死亡才結算一次（規格 §6.2） */
@@ -262,12 +352,13 @@ export class GameScene extends Phaser.Scene {
     enemy.hp -= 1;
     if (enemy.hp <= 0) {
       enemy.settled = true;
-      const def = ENEMIES[enemy.defId];
-      this.run.addKill(def.score);
+      this.run.addKill(enemy.def.score);
+      if (enemy.hasWarnSign) { this.setWarnSign(enemy, false); this.warnQuota.release(); }
       enemy.destroy();
     } else {
       enemy.setTint(0xffffff);
-      this.time.delayedCall(80, () => { if (enemy.active) enemy.setTint(ENEMIES[enemy.defId].tint); });
+      const base = HAZARD_KINDS[enemy.def.kindId].palette.base;
+      this.time.delayedCall(80, () => { if (enemy.active) enemy.setTint(base); });
     }
   }
 
@@ -299,14 +390,14 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    if (this.run.phase === 'playing' && this.run.elapsedMs >= TEST_LEVEL_DURATION_MS) {
+    if (this.run.phase === 'playing' && this.run.elapsedMs >= this.level.durationMs) {
       this.run.phase = 'finishing';
     }
 
     if (this.run.phase === 'finishing') {
       const enemiesLeft = this.enemies.countActive(true);
       const bulletsLeft = this.countEnemyBullets();
-      const timeUp = this.run.elapsedMs >= TEST_LEVEL_DURATION_MS + TEST_FINISH_MS;
+      const timeUp = this.run.elapsedMs >= this.level.durationMs + this.level.finishMs;
       if ((enemiesLeft === 0 && bulletsLeft === 0) || timeUp) {
         if (timeUp && enemiesLeft > 0) {
           for (const o of this.enemies.getChildren()) {
@@ -321,7 +412,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private countEnemyBullets(): number {
-    return 0; // B 階段沒有敵方投射物（雲怪在 C 階段）
+    return this.enemyBullets.countActive(true);
   }
 
   private finish(outcome: 'won' | 'lost'): void {
@@ -341,8 +432,11 @@ export class GameScene extends Phaser.Scene {
       e.settled = true;
       e.destroy();
     }
-    // 玩家彈群組（B 階段尚無敵方彈，敵方彈清空不適用）
     this.bullets.clear(true, true);
+    this.enemyBullets.clear(true, true);
+    for (const icon of this.warnIcons.keys()) icon.destroy();
+    this.warnIcons.clear();
+    this.warnQuota.reset();
     this.physics.world.pause();
     const hpBonus = outcome === 'won' ? this.run.hp * BALANCE.score.hpBonusPerLife : 0;
     this.scene.get('Hud').events.emit('finished', {
@@ -359,7 +453,7 @@ export class GameScene extends Phaser.Scene {
     const s = this.run.snapshot();
     const hearts = '♥'.repeat(Math.max(0, s.hp)) + '♡'.repeat(Math.max(0, s.maxHp - s.hp));
     this.hudText.setText(`${hearts}   分數 ${s.score}`);
-    const p = Phaser.Math.Clamp(s.elapsedMs / TEST_LEVEL_DURATION_MS, 0, 1);
+    const p = Phaser.Math.Clamp(s.elapsedMs / this.level.durationMs, 0, 1);
     this.progress.width = 400 * p;
   }
 

@@ -1,70 +1,111 @@
-import type { HazardKind } from '../types';
+import type { HazardKindId } from './hazard-kinds';
+
+export type EnemyBehavior =
+  | 'wave-accel'      // aflatoxin：波浪＋預警後短時加速
+  | 'slow-shooter'    // sulfur_dioxide_excess：慢速＋預警後直線彈
+  | 'straight-tank'   // salmonella：直線推進、高耐久
+  | 'lane-shift';     // s_aureus：預警後階梯換線
 
 export interface EnemyDefinition {
-  id: 'germ' | 'cloud' | 'shard';
+  enemyId: string;
+  kindId: HazardKindId;
+  tier: 'normal' | 'elite';
   displayName: string;
-  knowledgeName: string;
-  hazard: HazardKind;
+  behavior: EnemyBehavior;
   hp: number;
   score: number;
   spawnX: number;
   exitX: number;
+  /** 基礎水平速度（px/s），換線或加速期間由行為覆寫 */
   speed: number;
   size: { w: number; h: number };
+  /** 碰撞體：與視覺尺寸分開，scale 固定 1 */
   body: { w: number; h: number };
-  tint: number;
-  attack: null | { type: 'projectile' | 'dash'; warnMs: number };
-  hover?: { atX: number; durationMs: number; amplitude: number; periodMs: number };
-  dash?: { speed: number };
+  /** 預警時長；無攻擊行為為 0 */
+  warnMs: number;
+  /** 攻擊冷卻（ms）；0 表示不重複 */
+  cooldownMs: number;
+  /** 額外行為參數 */
+  params?: {
+    waveAmplitude?: number;
+    wavePeriodMs?: number;
+    accelSpeed?: number;
+    accelMs?: number;
+    projectileSpeed?: number;
+    laneSegments?: number;
+    laneStepPx?: number;
+    lanePauseMs?: number;
+  };
 }
 
-/** B 階段只實作 germ；cloud / shard 留給 C 階段（資料已定，程式未接）。 */
 export const ENEMIES: Record<string, EnemyDefinition> = {
-  germ: {
-    id: 'germ',
-    displayName: '菌團怪',
-    knowledgeName: '微生物污染風險',
-    hazard: 'biological',
-    hp: 2,
-    score: 100,
-    spawnX: 1280,
-    exitX: 60,
-    speed: 90,
-    size: { w: 64, h: 64 },
-    body: { w: 52, h: 52 },
-    tint: 0x8fd694,
-    attack: null,
-  },
-  cloud: {
-    id: 'cloud',
-    displayName: '污染雲怪',
-    knowledgeName: '化學物質殘留風險',
-    hazard: 'chemical',
+  'aflatoxin-normal': {
+    enemyId: 'aflatoxin-normal',
+    kindId: 'aflatoxin',
+    tier: 'normal',
+    displayName: '黃麴毒素',
+    behavior: 'wave-accel',
     hp: 3,
     score: 150,
-    spawnX: 1280,
+    spawnX: 1300,
     exitX: 60,
-    speed: 60,
-    size: { w: 96, h: 64 },
-    body: { w: 76, h: 52 },
-    tint: 0xb7a6e8,
-    attack: { type: 'projectile', warnMs: 600 },
-    hover: { atX: 900, durationMs: 2000, amplitude: 24, periodMs: 2400 },
+    speed: 110,
+    size: { w: 72, h: 72 },
+    body: { w: 56, h: 56 },
+    warnMs: 600,
+    cooldownMs: 3500,
+    params: { waveAmplitude: 40, wavePeriodMs: 2200, accelSpeed: 220, accelMs: 1200 },
   },
-  shard: {
-    id: 'shard',
-    displayName: '異物尖兵',
-    knowledgeName: '異物污染風險',
-    hazard: 'physical',
-    hp: 1,
-    score: 120,
-    spawnX: 1380,
+  'sulfur_dioxide_excess-normal': {
+    enemyId: 'sulfur_dioxide_excess-normal',
+    kindId: 'sulfur_dioxide_excess',
+    tier: 'normal',
+    displayName: '二氧化硫超標',
+    behavior: 'slow-shooter',
+    hp: 4,
+    score: 180,
+    spawnX: 1300,
     exitX: 60,
-    speed: 150,
-    size: { w: 56, h: 56 },
-    body: { w: 44, h: 44 },
-    tint: 0xf2a65a,
-    attack: { type: 'dash', warnMs: 600 },
-    dash: { speed: 420 },
+    speed: 55,
+    size: { w: 88, h: 64 },
+    body: { w: 68, h: 50 },
+    warnMs: 600,
+    cooldownMs: 3000,
+    params: { projectileSpeed: 260 },
+  },
+  'salmonella-normal': {
+    enemyId: 'salmonella-normal',
+    kindId: 'salmonella',
+    tier: 'normal',
+    displayName: '沙門氏菌',
+    behavior: 'straight-tank',
+    hp: 5,
+    score: 200,
+    spawnX: 1300,
+    exitX: 60,
+    speed: 130,
+    size: { w: 96, h: 48 },
+    body: { w: 78, h: 38 },
+    warnMs: 0,
+    cooldownMs: 0,
+  },
+  's_aureus-normal': {
+    enemyId: 's_aureus-normal',
+    kindId: 's_aureus',
+    tier: 'normal',
+    displayName: '金黃色葡萄球菌',
+    behavior: 'lane-shift',
+    hp: 3,
+    score: 150,
+    spawnX: 1300,
+    exitX: 60,
+    speed: 95,
+    size: { w: 80, h: 80 },
+    body: { w: 64, h: 64 },
+    warnMs: 600,
+    cooldownMs: 3000,
+    params: { laneSegments: 3, laneStepPx: 100, lanePauseMs: 400 },
   },
 };
+
+export const ENEMY_IDS = Object.keys(ENEMIES);

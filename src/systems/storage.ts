@@ -39,3 +39,16 @@ export function saveSettings(s: Settings): void {
     // 儲存失敗不得阻止遊戲
   }
 }
+
+/** 降低動態模式：關閉閃爍、震動與非必要動畫；預警改用靜態提示 */
+export function isReducedMotion(): boolean {
+  try {
+    const s = loadSettings();
+    if (s.reduceMotion) return true;
+    return typeof window !== 'undefined'
+      && typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch {
+    return false;
+  }
+}

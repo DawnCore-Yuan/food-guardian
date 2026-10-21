@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 import { BALANCE } from '../data/balance';
 import { ENEMIES, type EnemyDefinition } from '../data/enemies';
 import { HAZARD_KINDS } from '../data/hazard-kinds';
+import { isReducedMotion } from '../systems/storage';
+import { TouchController } from '../ui/touch';
 import { updateEnemy, type EnemyBody, type BehaviorHost } from '../systems/enemy-behaviors';
 import { WarnQuota } from '../systems/warn-quota';
 import { InputController } from '../systems/input';
@@ -21,6 +23,8 @@ export class GameScene extends Phaser.Scene {
   private warnQuota = new WarnQuota();
   private warnIcons = new Map<Phaser.GameObjects.Image, EnemySprite>();
   private warnIconOf = new Map<EnemySprite, Phaser.GameObjects.Image>();
+  private reducedMotion = false;
+  private touch: TouchController | null = null;
   private readonly behaviorHost: BehaviorHost = {
     spawnEnemyProjectile: (x, y, speed) => this.spawnEnemyProjectile(x, y, speed),
     setWarnSign: (e, visible) => this.setWarnSign(e, visible),
@@ -41,6 +45,7 @@ export class GameScene extends Phaser.Scene {
     const requested = params.get('level') as LevelId | null;
     const levelId: LevelId = __DEV_HOOK__ && requested && LEVELS[requested] ? requested : DEFAULT_LEVEL;
     this.level = LEVELS[levelId];
+    this.reducedMotion = isReducedMotion();
     this.run = new RunState(1);
     this.wavesInitialized = false;
     this.pending = [];
@@ -97,6 +102,12 @@ export class GameScene extends Phaser.Scene {
 
     this.input2 = new InputController();
     this.input2.attach(this.game.canvas, () => this.requestPause());
+
+    const isTouch = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+    if (isTouch) {
+      this.touch = new TouchController(this, () => this.requestPause());
+      this.touch.attach(this.game.canvas, true);
+    }
 
     // HudScene 為獨立 scene，永不暫停；等它 create 完成（hud-ready）後才啟用事件
     this.hudReady = false;
@@ -194,7 +205,12 @@ export class GameScene extends Phaser.Scene {
     if (this.input2.consumePause()) { this.requestPause(); return; }
 
     this.run.tick(dt);
-    const inp = this.input2.read();
+    const kb = this.input2.read();
+    const tc = this.touch?.read();
+    const inp = tc
+      ? { moveX: kb.moveX || tc.moveX, moveY: kb.moveY || tc.moveY, firing: kb.firing || tc.firing, pauseRequested: false }
+      : kb;
+    if (tc && this.touch?.consumePause()) { this.requestPause(); return; }
 
     // 玩家移動（唯一由這裡設定速度；物理負責位移）
     this.player.setVelocity(inp.moveX * BALANCE.player.speed, inp.moveY * BALANCE.player.speed);
@@ -329,7 +345,14 @@ export class GameScene extends Phaser.Scene {
     }
     const existing = this.warnIconOf.get(e);
     if (existing) { existing.setPosition(this.warnX(e), this.warnY(e)); return; }
-    const img = this.add.image(this.warnX(e), this.warnY(e), TEX.warnSign).setDepth(5).setAlpha(0.95);
+    const img = this.add.image(this.warnX(e), this.warnY(e), TEX.warnSign).setDepth(5);
+    if (this.reducedMotion) {
+      // 降低動態：固定不透明度，不做脈動或閃爍
+      img.setAlpha(1);
+    } else {
+      img.setAlpha(1);
+      this.tweens.add({ targets: img, alpha: 0.55, duration: 300, yoyo: true, repeat: -1 });
+    }
     this.warnIconOf.set(e, img);
     this.warnIcons.set(img as unknown as Phaser.GameObjects.Image, e);
   }
@@ -479,6 +502,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private cleanup(): void {
+    this.touch?.destroy();
+    this.touch = null;
     this.sys.events.off(Phaser.Scenes.Events.POST_UPDATE, this.samplePostUpdate, this);
     this.input2?.destroy();
     this.pending = [];

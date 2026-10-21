@@ -447,59 +447,107 @@ export class GameScene extends Phaser.Scene {
     const g = this.add.graphics();
     g.fillStyle(0x1d3b56, 0.9).fillRoundedRect(-w / 2, -h / 2, w, h, h / 2);
     g.lineStyle(2, 0x7fdffc, 0.7).strokeRoundedRect(-w / 2, -h / 2, w, h, h / 2);
-    // 下指三角
-    g.fillStyle(0x1d3b56, 0.9).fillTriangle(-7, h / 2 - 1, 7, h / 2 - 1, 0, h / 2 + 9);
-    const c = this.add.container(0, 0, [g, label]).setDepth(6);
+    // 指示三角獨立物件：放在上方時朝下、放下方時朝上
+    const tri = this.add.graphics().setName('tag-tri');
+    tri.fillStyle(0x1d3b56, 0.9).fillTriangle(-7, h / 2 - 1, 7, h / 2 - 1, 0, h / 2 + 9);
+    const c = this.add.container(0, 0, [g, label, tri]).setDepth(6);
     c.setData('tagH', h);
     c.setData('tagW', w);
     this.nameTags.set(e, c);
   }
 
   /** 每幀更新名稱牌位置：跟隨敵人、避開預警與邊界、同屏重疊時上下錯開 */
+  /**
+   * 名稱牌顯示（批次 8 修訂）。
+   * 優先目標是「能清楚對應自己的敵人」，不是硬把所有牌子都塞進畫面。
+   * 規則：
+   *   1. 名稱牌固定貼在對應角色上緣外側；有預警三角時，再加入三角淨空帶。
+   *   2. 若該位置會壓到「其他敵人」或「其他名稱牌」，或超出畫布：
+   *      收斂為不顯示，而不是把牌子推去撞別人或推離本體。
+   *   3. 同屏密度高時，優先保留離玩家較近者（較有威脅），其餘隱藏。
+   *   4. 不移動敵人、不改行為、不改波次。
+   */
+  /**
+   * 名稱牌顯示（批次 8 修訂 2）。
+   * 核心要求：名稱牌必須能清楚對應自己的敵人。
+   * 規則：
+   *   1. 預設貼在對應角色上緣外側（有預警三角時再往上讓出三角）。
+   *   2. 若該位置壓到「其他敵人」：先水平微調（最多 ±40px，仍在本體附近）再試一次。
+   *   3. 仍衝突、或會超出畫面（例如貼近頂部 HUD 下方）→ 不顯示。
+   *      寧可不顯示，也不把牌子推去撞別人或推離本體。
+   *   4. 同屏密集時，兩個名稱牌互撞則只保留離玩家較近者。
+   *   5. 不移動敵人、不改行為、不改波次。
+   */
+  /**
+   * 名稱牌（批次 8 定案規則）
+   *   1. 優先貼在敵人上緣外側；上方被頂部 HUD 或畫面邊界擋住時，改放下方並把指示三角轉向上。
+   *   2. 不覆蓋其他敵人、不覆蓋預警三角、不與其他名稱牌重疊。
+   *   3. 上方與下方都不行 → 只在水平方向小幅讓位（≤40px，仍貼近本體）再試。
+   *   4. 仍不行 → 該張隱藏（密集處收斂），不新增替代圖示、不移動敵人。
+   */
+  /**
+   * 名稱牌（固定優先序，不再擴增候選）
+   *   1. 上方：貼在敵人上緣外，不得越過頂部 HUD 安全區
+   *   2. 下方：上方放不下時放下方，指示三角朝上
+   *   3. 兩個都不行 → 隱藏（密集時允許只顯示部分）
+   * 只以「完整矩形」判斷：不超出畫布、不與已放置的名稱牌重疊。
+   * 不與敵人框做部分重疊判斷（避免把標籤算成覆蓋角色而全部隱藏）。
+   */
   private updateNameTags(): void {
     if (this.nameTags.size === 0) return;
-    type Slot = { e: EnemySprite; c: Phaser.GameObjects.Container; w: number; h: number; x: number; y: number; desired: number };
-    const slots: Slot[] = [];
+    const CLEAR = 8;
+    const TOP_LIMIT = 96;
 
+    type Rect = { l: number; r: number; t: number; b: number };
+    const rectOf = (x: number, y: number, w: number, h: number): Rect =>
+      ({ l: x - w / 2, r: x + w / 2, t: y - h / 2, b: y + h / 2 });
+    const overlap = (p: Rect, q: Rect): boolean =>
+      p.l < q.r && p.r > q.l && p.t < q.b && p.b > q.t;
+
+    const items = [...this.nameTags.entries()]
+      .filter(([e]) => e.active)
+      .map(([e, c]) => ({
+        e, c,
+        w: (c.getData('tagW') as number) ?? 120,
+        h: (c.getData('tagH') as number) ?? 32,
+        dist: Math.hypot(e.x - this.player.x, e.y - this.player.y),
+      }))
+      .sort((x, y) => x.dist - y.dist);
+
+    // 回收已失效
     for (const [e, c] of [...this.nameTags.entries()]) {
-      if (!e.active) { c.destroy(); this.nameTags.delete(e); continue; }
-      const b = e.getBounds();
-      const h = (c.getData('tagH') as number) ?? 32;
-      const w = (c.getData('tagW') as number) ?? 120;
-      // 邊界不裁切：中心點夾在畫布內
-      const x = Phaser.Math.Clamp(e.x, 12 + w / 2, GAME_W - 12 - w / 2);
-      // 預設放在角色上緣之上。
-      // 預警三角已在自己的圖層（depth 5），名稱牌在 depth 6 且間距足夠，
-      // 不再額外固定上移 34px，避免把名稱牌推去撞上方敵人（改由下方避讓處理）。
-      const warnOffset = 0;
-      let y = b.top - h / 2 - 8 - warnOffset;
-      // 上方超出畫布時改放角色下方
-      if (y - h / 2 < 6) y = b.bottom + h / 2 + 8 + warnOffset;
-      const desired = y;
-      slots.push({ e, c, w, h, x, y, desired });
+      if (!e.active) { c.destroy(); this.nameTags.delete(e); }
     }
 
-    // 由上而下排序，依序往「上方優先、下方次之」的可用位置塞
-    slots.sort((a, b) => a.desired - b.desired);
-    const placed: { x: number; y: number; w: number; h: number }[] = [];
-    for (const s of slots) {
-      let y = s.desired;
-      const collides = (yy: number): boolean =>
-        placed.some((p) => Math.abs(p.x - s.x) < (p.w + s.w) / 2 && Math.abs(p.y - yy) < (p.h + s.h) / 2 + 4);
-      if (collides(y)) {
-        // 先往上找空位，再往下找；兩者皆受畫面邊界限制
-        let up = y;
-        for (let i = 0; i < 6 && collides(up); i++) up -= (s.h + 6);
-        let down = y;
-        for (let i = 0; i < 6 && collides(down); i++) down += (s.h + 6);
-        const upOk = up - s.h / 2 >= 6;
-        const downOk = down + s.h / 2 <= GAME_H - 6;
-        if (upOk) y = up;
-        else if (downOk) y = down;
+    const placed: Rect[] = [];
+    for (const it of items) {
+      const bb = it.e.getBounds();
+      const x = Phaser.Math.Clamp(it.e.x, 12 + it.w / 2, GAME_W - 12 - it.w / 2);
+      const aboveY = bb.top - it.h / 2 - CLEAR;
+      const belowY = bb.bottom + it.h / 2 + CLEAR;
+
+      let chosen: { y: number; up: boolean } | null = null;
+      for (const cand of [{ y: aboveY, up: true }, { y: belowY, up: false }]) {
+        const r = rectOf(x, cand.y, it.w, it.h);
+        if (r.t < TOP_LIMIT) continue;            // 會撞頂部 HUD
+        if (r.b > GAME_H - 4) continue;           // 超出畫面下緣
+        if (r.l < 4 || r.r > GAME_W - 4) continue;
+        if (placed.some((p) => overlap(r, p))) continue;
+        chosen = cand;
+        placed.push(r);
+        break;
       }
-      s.c.setPosition(s.x, y);
-      s.c.setData('curY', y);
-      placed.push({ x: s.x, y, w: s.w, h: s.h });
+
+      if (!chosen) { it.c.setVisible(false); continue; }
+
+      const tri = it.c.getByName('tag-tri') as Phaser.GameObjects.Graphics | null;
+      if (tri) {
+        tri.clear();
+        tri.fillStyle(0x1d3b56, 0.9);
+        if (chosen.up) tri.fillTriangle(-7, it.h / 2 - 1, 7, it.h / 2 - 1, 0, it.h / 2 + 9);
+        else tri.fillTriangle(-7, -it.h / 2 + 1, 7, -it.h / 2 + 1, 0, -it.h / 2 - 9);
+      }
+      it.c.setVisible(true).setPosition(x, chosen.y);
     }
   }
 

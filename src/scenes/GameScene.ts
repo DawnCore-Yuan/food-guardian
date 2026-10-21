@@ -36,7 +36,6 @@ export class GameScene extends Phaser.Scene {
   private readonly behaviorHost: BehaviorHost = {
     spawnEnemyProjectileFrom: (enemy, speed) => this.spawnEnemyProjectileFrom(enemy, speed),
     setWarnSign: (e, visible) => this.setWarnSign(e, visible),
-    playWarnSfx: () => audio.play('warn'),
   };
   private wavesInitialized = false;
   private pending: Array<{ at: number; enemyId: string; y: number }> = [];
@@ -576,7 +575,8 @@ export class GameScene extends Phaser.Scene {
     const existing = this.warnIconOf.get(e);
     if (existing) { existing.setPosition(this.warnX(e), this.warnY(e)); return; }
     const img = this.add.image(this.warnX(e), this.warnY(e), TEX.warnSign).setDepth(5);
-    audio.play('warn');   // 只在「正式開始預警」時播一次；節流由 AudioManager 處理
+    // 只在「正式開始預警」時播一次；waiting 階段不會建立三角，因此不會重複
+    audio.play('warn');
     if (this.reducedMotion) {
       // 降低動態：固定不透明度，不做脈動或閃爍
       img.setAlpha(1);

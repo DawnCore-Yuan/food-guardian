@@ -227,7 +227,12 @@ export class HudScene extends Phaser.Scene {
     const barW = W - m * 2;
     const cy = barTop + barH / 2;
 
-    const pauseR = Math.round(Math.min(barH * 0.46, 26));
+    // 命中區需求：≥48 CSS px。以 canvas 實際顯示比例回推所需邏輯半徑，
+    // 確保手機（canvas 約 693 寬）時仍足夠，且兩個按鈕不重疊。
+    const cssScale = (this.scale.canvas ? this.game.canvas.getBoundingClientRect().width / this.scale.width : 1) || 1;
+    const hitNeeded = 48 / Math.max(0.01, cssScale);      // 需要的邏輯直徑
+    const minR = Math.ceil(hitNeeded / 2);
+    const pauseR = Math.max(Math.round(Math.min(barH * 0.46, 26)), minR);
     const pauseX = m + barW - pauseR - 8;
 
     // 時間（等寬）
@@ -322,10 +327,17 @@ export class HudScene extends Phaser.Scene {
 
     // 音效鈕（暫停鈕左側）
     const sndR = pauseR;
-    const sndX = pauseX - sndR * 2 - 12;
+    const sndX = pauseX - sndR * 2 - 14;
     this.sndG.clear();
     this.sndG.fillStyle(0x16334a, audio.isEnabled() ? 1 : 0.45).fillCircle(sndX, cy, sndR);
     this.sndG.lineStyle(2, C.frame, audio.isEnabled() ? 0.95 : 0.4).strokeCircle(sndX, cy, sndR);
+    if (!audio.isEnabled()) {
+      // 關閉時畫斜線（不只靠顏色）
+      this.sndG.lineStyle(3, 0xd9534f, 1).beginPath();
+      this.sndG.moveTo(sndX - sndR * 0.55, cy - sndR * 0.55);
+      this.sndG.lineTo(sndX + sndR * 0.55, cy + sndR * 0.55);
+      this.sndG.strokePath();
+    }
     this.sndLabel.setPosition(sndX, cy).setAlpha(audio.isEnabled() ? 1 : 0.5);
     const sHit = Math.max(48, sndR * 2);
     this.sndHit.setSize(sHit, sHit);

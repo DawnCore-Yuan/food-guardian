@@ -136,17 +136,29 @@ export class AudioManager {
 
   // ── 播放 ────────────────────────────────────────────────
   play(kind: SfxName): void {
+    if (__DEV_HOOK__) {
+      const w = window as unknown as { __SFX__?: Array<{ t: number; type: string; result: string }> };
+      w.__SFX__ = w.__SFX__ || [];
+      if (w.__SFX__.length < 500) {
+        let result = 'played';
+        if (!this.enabled) result = 'muted';
+        else if (this.suspended) result = 'suspended';
+        else if (!this.ctx) result = 'no-ctx';
+        else if (this.ctx.state !== 'running') result = 'ctx-' + this.ctx.state;
+        w.__SFX__.push({ t: Math.round(performance.now()), type: kind, result });
+      }
+    }
     if (!this.enabled || this.suspended) return;
     const ctx = this.ctx;
     const master = this.master;
     if (!ctx || !master || ctx.state !== 'running') return;
     const now = ctx.currentTime * 1000;
-    if (this.throttled(kind, now)) return;
+    if (this.throttled(kind, now)) { this.log('throttled', kind); return; }
 
     // 聲部上限：容量不足時，先丟掉優先度最低的（射擊）
     if (this.voices.length >= MAX_VOICES) {
       const weakest = this.voices.reduce((a, b) => (a.priority <= b.priority ? a : b));
-      if (weakest.priority >= PRIORITY[kind]) return;   // 現有都比新事件重要 → 不播
+      if (weakest.priority >= PRIORITY[kind]) { this.log('dropped-capacity', kind); return; }
       this.voices = this.voices.filter((v) => v !== weakest);
       this.kill(weakest);
     }
@@ -159,6 +171,15 @@ export class AudioManager {
     window.setTimeout(() => {
       this.voices = this.voices.filter((v) => v !== voice);
     }, Math.max(0, lifeMs) + 60);
+  }
+
+  private log(reason: string, kind: SfxName): void {
+    if (!__DEV_HOOK__) return;
+    const w = window as unknown as { __SFX__?: Array<{ t: number; type: string; result: string }> };
+    w.__SFX__ = w.__SFX__ || [];
+    if (w.__SFX__.length < 500) {
+      w.__SFX__.push({ t: Math.round(performance.now()), type: kind, result: reason });
+    }
   }
 
   private kill(v: Voice): void {

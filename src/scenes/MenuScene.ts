@@ -57,18 +57,28 @@ export class MenuScene extends Phaser.Scene {
       const on = audio.isEnabled();
       sndLabel.setText(on ? '音效 開' : '音效 關');
       sndPlate.clear();
-      sndPlate.fillStyle(0x16334a, on ? 0.92 : 0.6).fillRoundedRect(-66, -20, 132, 40, 20);
-      sndPlate.lineStyle(2, 0x7fdffc, on ? 0.9 : 0.4).strokeRoundedRect(-66, -20, 132, 40, 20);
-      if (!on) { sndPlate.lineStyle(3, 0xd9534f, 1).beginPath(); sndPlate.moveTo(-40, -12); sndPlate.lineTo(40, 12); sndPlate.strokePath(); }
+      const hw = boxW / 2, hh = hitH / 2;
+      sndPlate.fillStyle(0x16334a, on ? 0.92 : 0.6).fillRoundedRect(-hw, -hh, boxW, hitH, hitH / 2);
+      sndPlate.lineStyle(2, 0x7fdffc, on ? 0.9 : 0.4).strokeRoundedRect(-hw, -hh, boxW, hitH, hitH / 2);
+      if (!on) {
+        sndPlate.lineStyle(3, 0xd9534f, 1).beginPath();
+        sndPlate.moveTo(-hw * 0.62, -hh * 0.6);
+        sndPlate.lineTo(hw * 0.62, hh * 0.6);
+        sndPlate.strokePath();
+      }
     };
+    // 命中區需求 ≥48 CSS px：以 canvas 實際顯示比例回推邏輯尺寸
+    const cssScale = (this.game.canvas.getBoundingClientRect().width / this.scale.width) || 1;
+    const hitH = Math.min(120, Math.max(56, Math.ceil(48 / Math.max(0.01, cssScale)) + 8));
+    const boxW = hitH * 2.4;
     const sndPlate = this.add.graphics().setName('menu-snd');
     const sndLabel = this.add.text(0, 0, '', {
       fontFamily: '"Noto Sans TC", sans-serif', fontStyle: 'bold',
-      fontSize: '20px', color: '#ffffff',
+      fontSize: String(Math.round(hitH * 0.34)), color: '#ffffff',
     }).setOrigin(0.5);
-    this.add.container(width - 90, height - 100, [sndPlate, sndLabel]).setName('menu-snd-box');
+    this.add.container(width - boxW / 2 - 20, height - hitH / 2 - 40, [sndPlate, sndLabel]).setName('menu-snd-box');
     // 命中區至少 48 CSS px：以 canvas 邏輯座標換算實際 CSS 比例
-    const hitBox = this.add.zone(width - 90, height - 100, 132, 56).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    const hitBox = this.add.zone(width - boxW / 2 - 20, height - hitH / 2 - 40, boxW, hitH).setOrigin(0.5).setInteractive({ useHandCursor: true });
     hitBox.on('pointerup', () => {
       void audio.unlock();
       const on = !audio.isEnabled();

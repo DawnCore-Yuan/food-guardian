@@ -74,10 +74,12 @@ function updateWaveAccel(e: EnemyBody, _dt: number, quota: WarnQuota, host: Beha
 
   // cruise / enter
   e.setVelocityX(-e.def.speed);
+  // 單一來源設定垂直位置：只透過 Arcade Body 的 updateFromGameObject 之前寫 sprite.y，
+  // 再由引擎把 sprite 位置同步到 body。不要再直接改 body.position.y 之後又改 e.y，
+  // 兩者同時寫會在同一次物理步進裡互相覆蓋，造成每幀位置來回拉扯。
+  e.setVelocityY(0);
   const t = e.elapsedMs / period * Math.PI * 2;
-  const y = e.baseY + Math.sin(t) * amp;
-  e.body!.position.y = y - e.body!.halfHeight;
-  e.y = y;
+  e.y = e.baseY + Math.sin(t) * amp;
 
   if (e.phase === 'cruise' && e.cooldownMs <= 0) {
     if (quota.tryAcquire(e.uid)) {
@@ -93,10 +95,9 @@ function updateWaveAccel(e: EnemyBody, _dt: number, quota: WarnQuota, host: Beha
   if (e.phase === 'waiting') {
     // 延後特殊行為，但維持正常巡航（安全移動）
     e.setVelocityX(-e.def.speed);
+    e.setVelocityY(0);
     const tw = e.elapsedMs / period * Math.PI * 2;
-    const yw = e.baseY + Math.sin(tw) * amp;
-    e.body!.position.y = yw - e.body!.halfHeight;
-    e.y = yw;
+    e.y = e.baseY + Math.sin(tw) * amp;
     if (quota.tryAcquire(e.uid)) {
       e.phase = 'warning';
       e.phaseT = 0;

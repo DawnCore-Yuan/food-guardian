@@ -30,6 +30,8 @@ export interface KindVisual {
 export function buildPlaceholders(scene: Phaser.Scene, kinds: KindVisual[]): void {
   const make = (key: string, w: number, h: number, draw: (g: Phaser.GameObjects.Graphics) => void) => {
     if (scene.textures.exists(key)) return;
+    // 警告三角需要覆蓋既有紋理（辨識度強制升級），由呼叫端先 remove 再重建
+
     const g = scene.make.graphics({ x: 0, y: 0 }, false);
     draw(g);
     g.generateTexture(key, w, h);
@@ -54,10 +56,29 @@ export function buildPlaceholders(scene: Phaser.Scene, kinds: KindVisual[]): voi
   });
 
   // 預警：可獨立顯示的警告三角（非角色素材）
-  make(TEX.warnSign, 28, 26, (g) => {
-    g.fillStyle(0xf4a340, 1).fillTriangle(14, 0, 28, 26, 0, 26);
-    g.fillStyle(0xffffff, 1).fillRect(12, 8, 4, 10);
-    g.fillStyle(0xffffff, 1).fillRect(12, 20, 4, 4);
+  // 警告三角（辨識度版）：深色外框 + 黃橙填充 + 深色驚嘆號 + 極細淺色外緣
+  // 依賴深淺對比而非閃爍；金色敵人與淺背景都應可辨。尺寸維持 28×26（不放大遮擋）。
+  if (scene.textures.exists(TEX.warnSign)) scene.textures.remove(TEX.warnSign);
+  make(TEX.warnSign, 30, 28, (g) => {
+    // 淺色外緣（1px）：讓三角在深色角色上方也有分離
+    g.fillStyle(0xf4fbff, 1).fillTriangle(15, -0.5, 30, 27.5, 0, 27.5);
+    // 深色外框
+    g.fillStyle(0x1b2b3a, 1).fillTriangle(15, 2, 27.5, 26, 2.5, 26);
+    // 黃橙填充
+    g.fillStyle(0xf6a52a, 1).fillTriangle(15, 5, 25, 24, 5, 24);
+    // 深色驚嘆號（上段 4×10、下點 4×4）
+    g.fillStyle(0x1b2b3a, 1).fillRect(13, 10, 4, 10);
+    g.fillStyle(0x1b2b3a, 1).fillRect(13, 21, 4, 4);
+  });
+
+  // 敵彈（辨識度版）：12×12，深紫外框 + 紫色實心 + 偏亮中心；不使用縮圖，避免 12px 糊成一團
+  // 只改視覺，不動 12×12 碰撞體與速度。
+  if (scene.textures.exists('art-enemy-bullet')) scene.textures.remove('art-enemy-bullet');
+  // 色階沿用原稿實測值：外緣 48,1,139 / 中環 188,89,253 / 中心 252,211,251
+  make('art-enemy-bullet', 12, 12, (g) => {
+    g.fillStyle(0x30018b, 1).fillCircle(6, 6, 5.4);   // 深紫外緣（保留紫色實心輪廓）
+    g.fillStyle(0xbc59fd, 1).fillCircle(6, 6, 3.9);   // 紫色主體
+    g.fillStyle(0xfcd3fb, 1).fillCircle(5.6, 5.4, 1.7); // 偏亮中心，與外緣區隔
   });
 
   for (const k of kinds) {

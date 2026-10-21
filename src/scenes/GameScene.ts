@@ -415,7 +415,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private warnX(e: EnemySprite): number { return e.x; }
-  private warnY(e: EnemySprite): number { return e.y - e.def.size.h / 2 - 18; }
+  private warnY(e: EnemySprite): number { return e.y - e.def.size.h / 2 - 19; }
 
   private spawnEnemyProjectile(x: number, y: number, speed: number): void {
     if (this.enemyBullets.countActive(true) >= BALANCE.caps.enemyBullets) return;

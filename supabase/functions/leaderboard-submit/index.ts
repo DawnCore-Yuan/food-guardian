@@ -19,7 +19,7 @@ const CONTROL_RE = /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-
 
 // 計分規則（與 src/data/*、src/systems/waves.ts 對齊；見 docs/LEADERBOARD-RULES.md）
 const SFX = { salmonella: 200, sulfur: 180, aflatoxin: 150, aureus: 150 } as const;
-const OFFICIAL_COUNTS = { salmonella: 24, sulfur: 17, aflatoxin: 16, aureus: 10 } as const;
+const OFFICIAL_COUNTS = { salmonella: 26, sulfur: 12, aflatoxin: 14, aureus: 11 } as const;
 const HP_BONUS_PER_LIFE = 200;
 const RAW_MAX = OFFICIAL_COUNTS.salmonella * SFX.salmonella
   + OFFICIAL_COUNTS.sulfur * SFX.sulfur
@@ -27,6 +27,7 @@ const RAW_MAX = OFFICIAL_COUNTS.salmonella * SFX.salmonella
   + OFFICIAL_COUNTS.aureus * SFX.aureus;
 // v2 波次（src/systems/waves.ts）：沙門氏菌 26、黃麴毒素 14、二氧化硫 12、葡萄球菌 11 ＝ 63 隻
 // 擊破總分 11,110＋通關生命獎勵 1,000 ＝ 理論上限 12,110 → 硬上限 12,500
+// 下面四個常數由 scripts/leaderboard-consistency.test.mjs 直接，違反即測試失敗。
 const MAX_SCORE = 12500;
 const MAX_KILLS = 63;
 const OFFICIAL_DURATION_MS = 180_000;

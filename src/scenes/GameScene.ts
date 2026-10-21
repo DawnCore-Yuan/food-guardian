@@ -31,7 +31,7 @@ export class GameScene extends Phaser.Scene {
   private touch: TouchController | null = null;
   private orientationCleanup: (() => void) | null = null;
   private readonly behaviorHost: BehaviorHost = {
-    spawnEnemyProjectile: (x, y, speed) => this.spawnEnemyProjectile(x, y, speed),
+    spawnEnemyProjectileFrom: (enemy, speed) => this.spawnEnemyProjectileFrom(enemy, speed),
     setWarnSign: (e, visible) => this.setWarnSign(e, visible),
   };
   private wavesInitialized = false;
@@ -453,6 +453,17 @@ export class GameScene extends Phaser.Scene {
    * displayHeight 會反映紋理實際高度 × scale，因此不需另外維護一張尺寸表。
    */
   private warnY(e: EnemySprite): number { return e.y - e.displayHeight / 2 - 19; }
+
+  /**
+   * 由敵人「依實際發射方向」從顯示邊界外側發射。
+   * 敵人一律向左射擊，因此以 getBounds().left 為基準，
+   * 往左留 4px 間隙後，用「彈體半寬」回推中心點，讓 24×24 完整落在身體外。
+   */
+  private spawnEnemyProjectileFrom(enemy: EnemySprite, speed: number): void {
+    const halfW = BALANCE.enemyBullet.w / 2;
+    const x = enemy.getBounds().left - 4 - halfW;
+    this.spawnEnemyProjectile(x, enemy.y, speed);
+  }
 
   private spawnEnemyProjectile(x: number, y: number, speed: number): void {
     if (this.enemyBullets.countActive(true) >= BALANCE.caps.enemyBullets) return;

@@ -21,7 +21,8 @@ export interface EnemyBody extends Phaser.Physics.Arcade.Sprite {
 }
 
 export interface BehaviorHost {
-  spawnEnemyProjectile(x: number, y: number, speed: number): void;
+  /** 由敵人自身邊界外側發射（依實際朝向計算，避免從身體內部穿出） */
+  spawnEnemyProjectileFrom(enemy: EnemyBody, speed: number): void;
   setWarnSign(enemy: EnemyBody, visible: boolean): void;
 }
 
@@ -114,7 +115,7 @@ function updateSlowShooter(e: EnemyBody, _dt: number, quota: WarnQuota, host: Be
   if (e.phase === 'warning') {
     if (e.phaseT >= e.def.warnMs) {
       e.actStartMs = e.elapsedMs;
-      host.spawnEnemyProjectile(e.x - 30, e.y, e.def.params?.projectileSpeed ?? 260);
+      host.spawnEnemyProjectileFrom(e, e.def.params?.projectileSpeed ?? 260);
       host.setWarnSign(e, false);
       e.hasWarnSign = false;
       e.phase = 'cruise';

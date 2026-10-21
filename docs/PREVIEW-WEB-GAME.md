@@ -10,6 +10,10 @@
 | `compose.preview.yml` | 獨立預覽服務（nginx:stable-alpine，5182→80），不影響 OpenClaw 或其他 Compose |
 | `deploy/nginx-preview.conf` | 靜態檔服務；HTML `no-cache`；缺檔回 404，不用 index.html 掩蓋 |
 
+> 修正紀錄（2026-10-22，Mac 端實測）：`location /` 改為 `try_files $uri $uri/ =404;`。
+> 原寫法 `$uri $uri =` 第二個參數與最後一個 404 參數相同，等於少一層目錄檢查；改為 `$uri/` 後，
+> 目錄請求走 `index`，缺失的檔案仍回 404（實測 `/assets/not-exist.js` → 404，未以 index.html 掩蓋）。
+
 ## 路徑解析
 
 - 兩個 bind mount 的相對路徑都由 **compose.preview.yml 所在目錄**解析，因此必須在遊戲 repo 根目錄執行。
@@ -66,8 +70,18 @@ curl -sI http://192.168.1.20:5182/assets/not-exist.js | head -n 1   # 應 404
 | 項目 | 狀態 |
 |---|---|
 | 設定檔撰寫與讀回檢查 | 完成（YAML 欄位與 nginx 指令逐項核對） |
-| `docker compose config` | **待 Mac 執行** |
-| 容器啟動與 5182 回應 | **待 Mac 執行** |
+| `docker compose config` | Mac 端已執行（容器已啟動） |
+| 容器啟動 | **Mac 端已實測**：`web-game` 執行中，5182→80 |
+| `http://127.0.0.1:5182/` | **Mac 端已實測 200** |
+| `http://192.168.1.20:5182/` | **Mac 端已實測 200** |
+| `/assets/not-exist.js` | **Mac 端已實測 404**（未以 index.html 掩蓋） |
+| `nginx -t` 與 reload（修正後） | **Mac 端已實測通過** |
+
+> 以上結果由使用者在 Mac 端執行後回報；Gateway 內無 Docker CLI，無法自行複驗。
+
+## 固定做法
+
+往後區網預覽固定使用 `web-game` 容器與 5182，不再手動啟動 Python `http.server`。
 
 ## 界線
 

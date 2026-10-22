@@ -25,6 +25,10 @@
 3. **部署 Edge Functions**（任一種方式）：
    - CLI：`supabase link --project-ref <ref>` → `supabase functions deploy leaderboard-start leaderboard-submit leaderboard-list`
    - 或 Dashboard → Edge Functions → Deploy new function，逐一貼上 `supabase/functions/*/index.ts`（`_shared/helpers.ts` 需一併上傳，CLI 會自動處理）。
+3.1 **只更新 leaderboard-submit 時**：Dashboard → Edge Functions → leaderboard-submit → 全檔替換為
+   `deliver/leaderboard-submit/leaderboard-submit.single.ts`（helpers 已內嵌）→ Deploy。逐步與驗證方式見
+   `deliver/leaderboard-submit/DEPLOY.md`。
+
 4. **確認 `verify_jwt`**：三個函式都要允許 anon 呼叫。CLI 部署時加上 `--no-verify-jwt`，或在 Dashboard 把 Verify JWT 關閉。
    - 原因：公開端只帶 anon key，函式本身已自行執行權限檢查；JWT 驗證不是本設計的防線。
 5. **設定函式 secrets**（Dashboard → Edge Functions → Secrets）：

@@ -27,6 +27,20 @@ const RAW_MAX = RULES.COUNTS.salmonella * RULES.SFX.salmonella
   + RULES.COUNTS.aflatoxin * RULES.SFX.aflatoxin
   + RULES.COUNTS.aureus * RULES.SFX.aureus;
 
+// 由高到低取前 k 隻：擊破 k 隻的理論最高擊破分（不含生命獎勵）
+const SCORE_AVAIL = [
+  ...Array(RULES.COUNTS.salmonella).fill(RULES.SFX.salmonella),
+  ...Array(RULES.COUNTS.sulfur).fill(RULES.SFX.sulfur),
+  ...Array(RULES.COUNTS.aflatoxin).fill(RULES.SFX.aflatoxin),
+  ...Array(RULES.COUNTS.aureus).fill(RULES.SFX.aureus),
+].sort((a, b) => b - a);
+function maxKillScore(kills) {
+  return SCORE_AVAIL.slice(0, kills).reduce((a, b) => a + b, 0);
+}
+function maxScoreFor(kills, won) {
+  return maxKillScore(kills) + (won ? RULES.HP * RULES.HP_BONUS_PER_LIFE : 0);
+}
+
 /**
  * @param {object} p 客戶端提交內容
  * @param {number} serverElapsedMs 伺服器時間 − 伺服器核發時間（ms）
@@ -40,7 +54,7 @@ function evaluate(p, serverElapsedMs) {
   if (p.outcome === 'won' && serverElapsedMs < RULES.DURATION_MS) return { ok: false, code: 'bad_time' };
   if (p.elapsedMs < RULES.MIN_LOST_MS) return { ok: false, code: 'bad_time' };
   if (p.outcome === 'won' && p.elapsedMs < RULES.DURATION_MS - RULES.SLACK_MS) return { ok: false, code: 'bad_time' };
-  if (p.score > RAW_MAX + RULES.HP_BONUS_PER_LIFE && p.kills < RULES.MAX_KILLS) return { ok: false, code: 'bad_score' };
+  if (p.score > maxScoreFor(p.kills, p.outcome === 'won')) return { ok: false, code: 'bad_score' };
   if (p.outcome === 'lost' && p.score > RAW_MAX) return { ok: false, code: 'bad_score' };
   return { ok: true };
 }
@@ -84,11 +98,78 @@ test('拒絕：分數超過 12500 上限', () => {
 test('拒絕：未通關卻拿了生命獎勵級分數', () => {
   assert.deepEqual(evaluate({ ...base, score: 12000, kills: 60 }, 200000), { ok: false, code: 'bad_score' });
 });
-test('拒絕：高分但擊破數不足', () => {
+test('拒絕：高分但擊破數不足（10 隻卻報滿分 12,110）', () => {
   assert.deepEqual(evaluate({ ...won, score: 12110, kills: 10 }, 181000), { ok: false, code: 'bad_score' });
 });
 test('拒絕：擊破數超過波次總數 63', () => {
   assert.deepEqual(evaluate({ ...won, kills: 64 }, 181000), { ok: false, code: 'bad_stats' });
+});
+
+// ── 逐擊破數上限（不得要求 kills + escapes = 63）──
+test('計分：62 隻的擊破上限為 10,960（少一隻 180 分或 150 分），通關加 1,000', () => {
+  assert.equal(maxKillScore(62), 10960);
+  assert.equal(maxScoreFor(62, true), 11960);
+});
+test('成功：通關 62 隻、11,930 分（11110 − 一隻二氧化硫 180 ＋ 滿血 1000）', () => {
+  // 時間到仍有 1 隻在場：kills 62、escapes 0，合計不等於 63 也必須可登錄
+  assert.deepEqual(
+    evaluate({ outcome: 'won', score: 11930, elapsedMs: 180400, kills: 62, escapes: 0 }, 181000),
+    { ok: true },
+  );
+});
+test('成功：通關 63 隻、12,110 分（全滅＋滿血）', () => {
+  assert.deepEqual(
+    evaluate({ outcome: 'won', score: 12110, elapsedMs: 180400, kills: 63, escapes: 0 }, 181000),
+    { ok: true },
+  );
+});
+test('成功：通關 62 隻、上限 11,960 分（邊界值）', () => {
+  assert.deepEqual(
+    evaluate({ outcome: 'won', score: 11960, elapsedMs: 180400, kills: 62, escapes: 0 }, 181000),
+    { ok: true },
+  );
+});
+test('拒絕：通關 62 隻卻報 11,961 分（超出該擊破數上限）', () => {
+  assert.deepEqual(
+    evaluate({ outcome: 'won', score: 11961, elapsedMs: 180400, kills: 62, escapes: 0 }, 181000),
+    { ok: false, code: 'bad_score' },
+  );
+});
+test('拒絕：通關 62 隻報 12,110 分（拿 63 隻的分數）', () => {
+  assert.deepEqual(
+    evaluate({ outcome: 'won', score: 12110, elapsedMs: 180400, kills: 62, escapes: 0 }, 181000),
+    { ok: false, code: 'bad_score' },
+  );
+});
+test('拒絕：通關 63 隻報 12,111 分（超出 63 隻上限）', () => {
+  assert.deepEqual(
+    evaluate({ outcome: 'won', score: 12111, elapsedMs: 180400, kills: 63, escapes: 0 }, 181000),
+    { ok: false, code: 'bad_score' },
+  );
+});
+test('拒絕：通關 62 隻已含滿血獎勵但仍多報（11,970）', () => {
+  assert.deepEqual(
+    evaluate({ outcome: 'won', score: 11970, elapsedMs: 180400, kills: 62, escapes: 0 }, 181000),
+    { ok: false, code: 'bad_score' },
+  );
+});
+test('成功：未通關 62 隻 10,960 分（無生命獎勵）', () => {
+  assert.deepEqual(
+    evaluate({ outcome: 'lost', score: 10960, elapsedMs: 150000, kills: 62, escapes: 0 }, 151000),
+    { ok: true },
+  );
+});
+test('拒絕：未通關 62 隻 11,960 分（偷加生命獎勵）', () => {
+  assert.deepEqual(
+    evaluate({ outcome: 'lost', score: 11960, elapsedMs: 150000, kills: 62, escapes: 0 }, 151000),
+    { ok: false, code: 'bad_score' },
+  );
+});
+test('成功：通關 0 隻僅有生命獎勵 1,000 分', () => {
+  assert.deepEqual(
+    evaluate({ outcome: 'won', score: 1000, elapsedMs: 180400, kills: 0, escapes: 0 }, 181000),
+    { ok: true },
+  );
 });
 
 // ── 計分依據本身 ──

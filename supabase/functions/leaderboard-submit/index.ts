@@ -5,7 +5,9 @@
 //     只憑 ticket_id 取不到任何東西。
 //  2) 冪等性由 scores.ticket_id 的唯一約束保證；插入是單筆，唯一約束會擋下「同時送出」的第二筆
 //     （PostgREST 回 409），兩條路徑都回傳同一個結果。
-//  3) 勝負由伺服器以「伺服器時間 − 伺服器核發時間」推導，不相信客戶端回報的 won/lost：
+//  3) 分數上限逐擊破數計算：擊破 k 隻最多拿到「官方敵人分值由高到低前 k 隻的總和」，
+//     通關另加生命獎勵（滿血最多 1,000）。不假設時間到時全部敵人都已擊破或逃脫。
+//  4) 勝負由伺服器以「伺服器時間 − 伺服器核發時間」推導，不相信客戶端回報的 won/lost：
 //       - 客戶端回報 lost：允許 180 秒前正常陣亡（至少已進行 MIN_LOST_MS）
 //       - 客戶端回報 won ：伺服器時間必須已跨過 180 秒（暫停會讓伺服器經過時間 > 遊戲時間，所以只看下限）
 //     這是合理性檢查，不是完整防作弊。
@@ -21,10 +23,40 @@ const CONTROL_RE = /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-
 const SFX = { salmonella: 200, sulfur: 180, aflatoxin: 150, aureus: 150 } as const;
 const OFFICIAL_COUNTS = { salmonella: 26, sulfur: 12, aflatoxin: 14, aureus: 11 } as const;
 const HP_BONUS_PER_LIFE = 200;
+const PLAYER_HP = 5;                     // BALANCE.player.hp；通關生命獎勵最多 5 × 200
+const WIN_BONUS_MAX = PLAYER_HP * HP_BONUS_PER_LIFE;
 const RAW_MAX = OFFICIAL_COUNTS.salmonella * SFX.salmonella
   + OFFICIAL_COUNTS.sulfur * SFX.sulfur
   + OFFICIAL_COUNTS.aflatoxin * SFX.aflatoxin
   + OFFICIAL_COUNTS.aureus * SFX.aureus;
+/**
+ * 每種敵人「最多能出幾隻」×分值，由高到低。
+ * 擊破 k 隻的理論最高擊破分＝取前 k 筆（同分不同種可互換，不影響總和）。
+ */
+const ENEMY_SCORE_AVAIL = [
+  { count: OFFICIAL_COUNTS.salmonella, score: SFX.salmonella },
+  { count: OFFICIAL_COUNTS.sulfur, score: SFX.sulfur },
+  { count: OFFICIAL_COUNTS.aflatoxin, score: SFX.aflatoxin },
+  { count: OFFICIAL_COUNTS.aureus, score: SFX.aureus },
+].sort((a, b) => b.score - a.score);
+
+/** 擊破 k 隻最多能拿到的擊破分（不含生命獎勵） */
+function maxKillScore(kills: number): number {
+  let left = kills;
+  let total = 0;
+  for (const e of ENEMY_SCORE_AVAIL) {
+    if (left <= 0) break;
+    const take = Math.min(left, e.count);
+    total += take * e.score;
+    left -= take;
+  }
+  return total;
+}
+
+/** 該局分數上限：通關加生命獎勵，未通關不得含獎勵 */
+function maxScoreFor(kills: number, won: boolean): number {
+  return maxKillScore(kills) + (won ? WIN_BONUS_MAX : 0);
+}
 // v2 波次（src/systems/waves.ts）：沙門氏菌 26、黃麴毒素 14、二氧化硫 12、葡萄球菌 11 ＝ 63 隻
 // 擊破總分 11,110＋通關生命獎勵 1,000 ＝ 理論上限 12,110 → 硬上限 12,500
 // 下面四個常數由 scripts/leaderboard-consistency.test.mjs 直接，違反即測試失敗。
@@ -141,8 +173,10 @@ Deno.serve(async (req: Request) => {
     if (body.elapsedMs < MIN_LOST_MS) {
       return fail('bad_time', '本局時間過短', 400);
     }
-    // 由分數推回擊破數下限：只有全部擊破才可能達到 RAW_MAX 級分數
-    if (body.score > RAW_MAX + HP_BONUS_PER_LIFE && body.kills < MAX_KILLS) {
+    // 分數與擊破數相符：取「擊破 k 隻的最高擊破分」，通關再加生命獎勵上限。
+    // 不要求 kills + escapes = 63：時間到時可能有敵人仍在場（未擊破、未逃脫）。
+    const allowedMax = maxScoreFor(body.kills, claimedWon);
+    if (body.score > allowedMax) {
       return fail('bad_score', '分數與擊破數不相符', 400);
     }
     if (!claimedWon && body.score > RAW_MAX) {

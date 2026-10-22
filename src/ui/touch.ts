@@ -23,15 +23,43 @@ export class TouchController {
   private stick?: Phaser.GameObjects.Arc;
   private knob?: Phaser.GameObjects.Arc;
   private fireZone?: Phaser.GameObjects.Rectangle;
+  private fireLabel?: Phaser.GameObjects.Text;
   private pauseBtn?: Phaser.GameObjects.Text;
   private pauseBg?: Phaser.GameObjects.Rectangle;
   private pauseBounds?: Phaser.Geom.Rectangle;
+  private fireBounds?: Phaser.Geom.Rectangle;
   private onInterrupt: (() => void) | null = null;
   private readonly scene: Phaser.Scene;
 
   constructor(scene: Phaser.Scene, onInterrupt: () => void) {
     this.scene = scene;
     this.onInterrupt = onInterrupt;
+  }
+
+  /**
+   * 依實際邏輯尺寸重排觸控區（旋轉、位址列伸縮、縮放後都要呼叫）。
+   * 命中判定與顯示使用同一組座標，避免畫面與可點位置錯位。
+   */
+  syncLayout(): void {
+    const W = this.scene.scale.width;
+    const H = this.scene.scale.height;
+    const fireW = Math.round(W * 0.30);
+    const fireH = Math.round(H * 0.47);
+    const fireX = W - fireW / 2 - Math.round(W * 0.012);
+    const fireY = H - fireH / 2 - Math.round(H * 0.05);
+    this.fireZone?.setPosition(fireX, fireY).setSize(fireW, fireH);
+    this.fireLabel?.setPosition(fireX, fireY);
+    const pauseSize = Math.round(Math.min(H * 0.13, 96));
+    const px = W - pauseSize / 2 - Math.round(W * 0.02);
+    const py = Math.round(H * 0.10);
+    this.pauseBg?.setPosition(px, py).setSize(pauseSize, pauseSize);
+    this.pauseBtn?.setPosition(px, py).setFontSize(Math.round(pauseSize * 0.54));
+    this.pauseBounds = new Phaser.Geom.Rectangle(px - pauseSize / 2, py - pauseSize / 2, pauseSize, pauseSize);
+    this.fireBounds = new Phaser.Geom.Rectangle(fireX - fireW / 2, fireY - fireH / 2, fireW, fireH);
+    if (this.origin) {
+      this.stick?.setVisible(true).setPosition(this.origin.x, this.origin.y);
+      this.knob?.setPosition(this.origin.x, this.origin.y);
+    }
   }
 
   /** 只在觸控裝置顯示；桌面不佔畫面 */
@@ -41,19 +69,17 @@ export class TouchController {
     this.stick = this.scene.add.circle(0, 0, this.radius, 0xffffff, 0.18)
       .setDepth(20).setStrokeStyle(2, 0xffffff, 0.5).setVisible(false);
     this.knob = this.scene.add.circle(0, 0, 32, 0x2a9d8f, 0.75).setDepth(21).setVisible(false);
-    this.fireZone = this.scene.add.rectangle(1050, 540, 380, 340, 0xffffff, 0.08)
+    this.fireZone = this.scene.add.rectangle(0, 0, 10, 10, 0xffffff, 0.08)
       .setDepth(20).setStrokeStyle(1, 0xffffff, 0.25);
-    this.scene.add.text(1050, 540, '按住射擊', {
+    this.fireLabel = this.scene.add.text(0, 0, '按住射擊', {
       fontFamily: '"Noto Sans TC", sans-serif', fontSize: '20px', color: '#ffffff',
     }).setOrigin(0.5).setDepth(21).setAlpha(0.7);
-    // 暫停鈕：邏輯 96×96 → 844×390 下約 52×52 CSS px（≥48）
-    const pauseBg = this.scene.add.rectangle(1190, 70, 96, 96, 0xffffff, 0.35)
+    this.pauseBg = this.scene.add.rectangle(0, 0, 96, 96, 0xffffff, 0.35)
       .setDepth(21).setStrokeStyle(2, 0xffffff, 0.6);
-    this.pauseBtn = this.scene.add.text(1190, 70, '⏸', { fontSize: '52px', color: '#1b4965' })
+    this.pauseBtn = this.scene.add.text(0, 0, '⏸', { fontSize: '52px', color: '#1b4965' })
       .setOrigin(0.5).setDepth(22).setInteractive({ useHandCursor: true });
-    this.pauseBg = pauseBg;
-    pauseBg.setInteractive({ useHandCursor: true });
-    pauseBg.on('pointerdown', (e: Phaser.Input.Pointer) => {
+    this.pauseBg.setInteractive({ useHandCursor: true });
+    this.pauseBg.on('pointerdown', (e: Phaser.Input.Pointer) => {
       e.event.stopPropagation();
       this.state.pauseRequested = true;
     });
@@ -61,18 +87,19 @@ export class TouchController {
       e.event.stopPropagation();
       this.state.pauseRequested = true;
     });
-    // 以實際 bounds 定義排除區（暫停鈕含底盤）
-    this.pauseBounds = new Phaser.Geom.Rectangle(1190 - 48, 70 - 48, 96, 96);
+    // 依實際邏輯尺寸配置（旋轉/縮放後由 syncLayout 重算，命中區不使用固定座標）
+    this.syncLayout();
 
     const down = (e: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
-      const x = ((e.clientX - rect.left) / rect.width) * 1280;
-      const y = ((e.clientY - rect.top) / rect.height) * 720;
+      const x = ((e.clientX - rect.left) / rect.width) * this.scene.scale.width;
+      const y = ((e.clientY - rect.top) / rect.height) * this.scene.scale.height;
       const inPause = this.pauseBounds?.contains(x, y) ?? false;
       if (inPause) { this.state.pauseRequested = true; return; }
-      if (x > 900 && y > 360) {
+      const inFire = this.fireBounds?.contains(x, y) ?? false;
+      if (inFire) {
         this.firePointers.add(e.pointerId);
-      } else if (x < 640 && this.origin === null) {
+      } else if (x < this.scene.scale.width * 0.6 && this.origin === null) {
         // 浮動搖桿：以首次按下的位置作為中心
         this.origin = { id: e.pointerId, x, y };
         this.movePointers.set(e.pointerId, { x, y });
@@ -84,8 +111,8 @@ export class TouchController {
     const move = (e: PointerEvent) => {
       if (!this.movePointers.has(e.pointerId)) return;
       const rect = canvas.getBoundingClientRect();
-      const x = ((e.clientX - rect.left) / rect.width) * 1280;
-      const y = ((e.clientY - rect.top) / rect.height) * 720;
+      const x = ((e.clientX - rect.left) / rect.width) * this.scene.scale.width;
+      const y = ((e.clientY - rect.top) / rect.height) * this.scene.scale.height;
       this.movePointers.set(e.pointerId, { x, y });
       this.updateKnob();
     };

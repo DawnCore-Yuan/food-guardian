@@ -3,6 +3,7 @@ import { BootScene } from './scenes/BootScene';
 import { MenuScene } from './scenes/MenuScene';
 import { GameScene } from './scenes/GameScene';
 import { HudScene } from './scenes/HudScene';
+import { initViewportGuard } from './systems/viewport';
 
 declare const __DEV_HOOK__: boolean;
 
@@ -13,6 +14,10 @@ if (__DEV_HOOK__ && new URLSearchParams(location.search).get('probe') === '1') {
 
 const app = document.getElementById('app');
 if (!app) throw new Error('missing #app');
+
+// 方向提示從首次載入就生效（涵蓋首頁、遊戲、排行榜），
+// 尺寸以 visualViewport 穩定後為準，避免讀到旋轉瞬間或位址列伸縮中的舊值。
+initViewportGuard();
 
 // 單一 Phaser.Game 實例；不建立第二個 rAF（規格 §10.3）
 const game = new Phaser.Game({
@@ -32,6 +37,12 @@ const game = new Phaser.Game({
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
+    // 明確給 100%：由 FIT 依容器實際尺寸等比縮放並置中，不寫死百分比；
+    // 容器尺寸變更（旋轉、位址列伸縮）時 Phaser 會重新計算顯示尺寸與輸入座標。
+    width: 1280,
+    height: 720,
+    zoom: 1,
+    autoRound: true,
   },
   scene: [BootScene, MenuScene, GameScene, HudScene],
 });

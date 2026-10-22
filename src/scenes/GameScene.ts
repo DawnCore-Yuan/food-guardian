@@ -9,6 +9,7 @@ import { updateEnemy, type EnemyBody, type BehaviorHost } from '../systems/enemy
 import { WarnQuota } from '../systems/warn-quota';
 import { leaderboard } from '../leaderboard/hub';
 import { InputController, isTextEntryTarget } from '../systems/input';
+import { isPortraitSize, onViewportResize } from '../systems/viewport';
 import { RunState } from '../systems/runstate';
 import { DEFAULT_LEVEL, LEVELS, type LevelConfig, type LevelId } from '../systems/waves';
 import { TEX, VISUAL, texFor, buildPlaceholders } from '../data/placeholder';
@@ -149,6 +150,8 @@ export class GameScene extends Phaser.Scene {
     hud.events.once('hud-ready', () => { this.hudReady = true; });
     this.scene.launch('Hud');
 
+    this.refreshHint();
+
     if (__DEV_HOOK__) {
       this.sys.events.on(Phaser.Scenes.Events.POST_UPDATE, this.samplePostUpdate, this);
     }
@@ -160,48 +163,54 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  /** 直向時顯示旋轉提示；切回橫向需玩家手動按繼續 */
+  /**
+   * 遊戲期間的方向處理：提示由全域 viewport 守衛負責（見 src/systems/viewport.ts），
+   * 這裡只做「轉直向就暫停並清除輸入」與「尺寸變更後重新對齊觸控命中區」。
+   * 不重建場景、不重置本局、不重發票券。
+   */
   private setupOrientationGuard(): void {
-    const el = document.getElementById('ui-layer');
-    if (!el) return;
-    const hint = document.createElement('div');
-    hint.id = 'rotate-hint';
-    hint.textContent = '請將手機旋轉為橫向';
-    Object.assign(hint.style, {
-      position: 'fixed', inset: '0', display: 'none', zIndex: '9999',
-      background: 'rgba(11,43,60,0.96)', color: '#fff', fontSize: '22px',
-      alignItems: 'center', justifyContent: 'center', textAlign: 'center',
-      padding: 'env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)',
-    } as CSSStyleDeclaration);
-    el.appendChild(hint);
-
-    const apply = () => {
-      const portrait = window.innerHeight > window.innerWidth;
-      hint.style.display = portrait ? 'flex' : 'none';
-      if (portrait) audio.setSuspended(true);   // 轉直向：停止戰鬥聲
-      if (portrait && this.isFighting && !this.scene.isPaused()) {
-        this.touch?.clearAll();
-        this.input2.clearAll();
-        this.player.setVelocity(0, 0);
-        this.requestPause();
+    // 全域守衛已經偵測並顯示提示；這裡訂閱同一份「穩定後」尺寸
+    const off = onViewportResize((size) => {
+      if (isPortraitSize(size)) {
+        audio.setSuspended(true);
+        if (this.isFighting && !this.scene.isPaused()) this.requestPause();
+        else this.clearControlState();
+      } else {
+        this.touch?.syncLayout();
+        this.refreshHint();
       }
-    };
+    });
     const onHide = (): void => { if (document.hidden) audio.setSuspended(true); else audio.setSuspended(false); };
     document.addEventListener('visibilitychange', onHide);
     // 視窗失焦不再直接靜音（會導致返回後整場無聲）；
     // 切到背景由 visibilitychange 處理，返回時由「繼續」等有效操作恢復。
     const onBlur = (): void => { if (document.hidden) audio.setSuspended(true); };
     window.addEventListener('blur', onBlur);
-    window.addEventListener('resize', apply);
-    window.addEventListener('orientationchange', apply);
-    apply();
+    // 旋轉/位址列伸縮後重排鍵盤提示位置
+    const onScale = (): void => this.refreshHint();
+    this.scale.on('resize', onScale);
+    // 進場時若已是直向，先暫停並清輸入（提示由全域守衛顯示）
+    if (isPortraitSize({ width: window.innerWidth, height: window.innerHeight })) {
+      if (this.isFighting) this.requestPause();
+    } else {
+      this.touch?.syncLayout();
+    }
     this.orientationCleanup = () => {
-      window.removeEventListener('resize', apply);
-      window.removeEventListener('orientationchange', apply);
+      off();
+      this.scale.off('resize', onScale);
       document.removeEventListener('visibilitychange', onHide);
       window.removeEventListener('blur', onBlur);
-      hint.remove();
     };
+  }
+
+  /** 鍵盤提示（左下角）跟著實際顯示尺寸走，避免跑版 */
+  private refreshHint(): void {
+    const hint = this.children.getByName('kbd-hint') as Phaser.GameObjects.Text | null;
+    if (!hint) return;
+    const { width, height } = this.scale;
+    hint.setPosition(24, height - 24);
+    hint.setFontSize(width < 900 ? 15 : 18);
+    hint.setVisible(width > height);
   }
 
   /** 清空鍵盤/觸控按鍵狀態並停住角色；不改變暫停狀態 */

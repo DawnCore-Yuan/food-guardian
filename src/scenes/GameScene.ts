@@ -8,7 +8,7 @@ import { TouchController } from '../ui/touch';
 import { updateEnemy, type EnemyBody, type BehaviorHost } from '../systems/enemy-behaviors';
 import { WarnQuota } from '../systems/warn-quota';
 import { leaderboard } from '../leaderboard/hub';
-import { InputController } from '../systems/input';
+import { InputController, isTextEntryTarget } from '../systems/input';
 import { RunState } from '../systems/runstate';
 import { DEFAULT_LEVEL, LEVELS, type LevelConfig, type LevelId } from '../systems/waves';
 import { TEX, VISUAL, texFor, buildPlaceholders } from '../data/placeholder';
@@ -130,6 +130,8 @@ export class GameScene extends Phaser.Scene {
 
     this.input2 = new InputController();
     this.input2.attach(this.game.canvas, () => this.requestPause());
+    // 焦點進入文字輸入框時清空按鍵狀態（輸入框自己處理文字，見 InputController）
+    document.addEventListener('focusin', this.onFocusChange);
 
     const isTouch = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
     if (isTouch) {
@@ -152,7 +154,10 @@ export class GameScene extends Phaser.Scene {
     }
     this.events.on('hud-request-pause', this.requestPause, this);
     this.events.on('resume', () => this.onResume());
-    this.events.once('shutdown', () => this.cleanup());
+    this.events.once('shutdown', () => {
+      document.removeEventListener('focusin', this.onFocusChange);
+      this.cleanup();
+    });
   }
 
   /** 直向時顯示旋轉提示；切回橫向需玩家手動按繼續 */
@@ -199,13 +204,32 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
+  /** 清空鍵盤/觸控按鍵狀態並停住角色；不改變暫停狀態 */
+  private clearControlState(): void {
+    this.input2?.clearAll();
+    this.touch?.clearAll();
+    this.player?.setVelocity(0, 0);
+  }
+
+  /** 供 Hud 呼叫：開排行榜面板等 UI 前清空按鍵狀態（不改暫停狀態） */
+  resetControlState(): void {
+    this.clearControlState();
+  }
+
+  /**
+   * 焦點移到文字輸入框（暱稱等）時清掉遊戲按鍵殘留，
+   * 讓「開面板前按著的方向鍵」不會在關閉後繼續生效；暫停與否由呼叫端決定。
+   */
+  private onFocusChange(e: FocusEvent): void {
+    if (isTextEntryTarget(e.target)) this.clearControlState();
+  }
+
   private requestPause(): void {
     if (!this.hudReady) return;
     if (!this.isFighting) return;
     audio.play('ui');            // 按鈕回饋（暫停）
     audio.setSuspended(true);    // 暫停時停止戰鬥聲
-    this.input2.clearAll();
-    this.touch?.clearAll();
+    this.clearControlState();
     this.player.setVelocity(0, 0);
     this.scene.pause();
     this.scene.get('Hud').events.emit('show-pause');
@@ -244,7 +268,7 @@ export class GameScene extends Phaser.Scene {
     audio.setSuspended(false);
     void audio.whenReady();
     // 恢復時再清一次，避免暫停期間殘留的按鍵/指標狀態
-    this.input2.clearAll();
+    this.clearControlState();
     this.cooldownMs = Math.max(0, this.cooldownMs);
   }
 

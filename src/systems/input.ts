@@ -1,6 +1,21 @@
 import type { InputState } from '../types';
 
 /**
+ * 判斷事件是否來自行「文字輸入」的欄位（暱稱輸入框、貼上、組字）。
+ * 這些元素有焦點時，遊戲快捷鍵不得攔截、不得 preventDefault，也不得記成按鍵狀態。
+ */
+export function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  const tag = target.tagName;
+  if (tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if (tag !== 'INPUT') return false;
+  // 只放行會輸入文字的 type；radio/checkbox/button 等仍視為一般按鍵操作
+  const type = (target as HTMLInputElement).type;
+  return ['text', 'search', 'email', 'url', 'tel', 'password', 'number'].includes(type);
+}
+
+/**
  * InputController：鍵盤與觸控 → 共同 InputState。
  * 依規格 §9.1：正常 pointerup 只解除該 pointer；cancel/blur/hidden 才清空並要求暫停。
  */
@@ -14,11 +29,17 @@ export class InputController {
     this.onInterrupt = onInterrupt;
 
     const kd = (e: KeyboardEvent) => {
+      // 文字輸入優先：輸入框（含中文組字）有焦點時整個事件不處理。
+      // 不可只跳過 preventDefault，否則按鍵仍會留在 keys，關閉面板後角色會自己動。
+      if (isTextEntryTarget(e.target) || e.isComposing || e.keyCode === 229) return;
       if (this.isGameKey(e.code)) e.preventDefault();
       this.keys.add(e.code);
       if (e.code === 'Escape' || e.code === 'KeyP') this.state.pauseRequested = true;
     };
-    const ku = (e: KeyboardEvent) => this.keys.delete(e.code);
+    const ku = (e: KeyboardEvent) => {
+      if (isTextEntryTarget(e.target) || e.isComposing) return;
+      this.keys.delete(e.code);
+    };
 
     const blur = () => { this.clearAll(); this.onInterrupt?.(); };
     const vis = () => { if (document.hidden) { this.clearAll(); this.onInterrupt?.(); } };

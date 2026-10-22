@@ -523,6 +523,8 @@ export class HudScene extends Phaser.Scene {
 
   /** 結算後登錄排行榜：HTML overlay 蓋在 Canvas 上，暫停鍵盤輸入避免誤觸 */
   private openLeaderboardSubmit(r: RunResult & LeaderboardResultMeta): void {
+    // 開面板（尚未暫停，Game 的 pause 事件不會觸發）：先清鍵盤/指標狀態，避免關閉後角色持續移動或射擊
+    (this.scene.get('Game') as unknown as { resetControlState: () => void }).resetControlState?.();
     this.scene.pause('Game');
     try {
       leaderboard().openSubmit(
